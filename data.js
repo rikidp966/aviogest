@@ -40,12 +40,105 @@ const DATI = (() => {
     ['PRG', 'Praga Václav Havel', 'Praga', 'CZ', 50.101, 14.260, 2700, .9, 0, 15, 0],
     ['ATH', 'Atene Eleftherios Venizelos', 'Atene', 'GR', 37.936, 23.944, 3800, 1, 0, 17, 0],
     ['TIA', 'Tirana Madre Teresa', 'Tirana', 'AL', 41.415, 19.721, 1000, .5, 0, 10, 0],
-    ['MLA', 'Malta Luqa', 'Malta', 'MT', 35.857, 14.477, 500, 1, 0, 14, 0]
+    ['MLA', 'Malta Luqa', 'Malta', 'MT', 35.857, 14.477, 500, 1, 0, 14, 0],
+    // Resto d'Europa
+    ['LGW', 'Londra Gatwick', 'Londra', 'GB', 51.148, -0.190, 12000, 1, 1, 25, 150000],
+    ['ORY', 'Parigi Orly', 'Parigi', 'FR', 48.723, 2.379, 11000, 1, 1, 20, 120000],
+    ['DUB', 'Dublino', 'Dublino', 'IE', 53.421, -6.270, 1900, .7, 0, 20, 0],
+    ['CPH', 'Copenaghen Kastrup', 'Copenaghen', 'DK', 55.618, 12.656, 2000, .7, 1, 20, 60000],
+    ['ARN', 'Stoccolma Arlanda', 'Stoccolma', 'SE', 59.650, 17.930, 2400, .6, 0, 18, 0],
+    ['OSL', 'Oslo Gardermoen', 'Oslo', 'NO', 60.194, 11.100, 1500, .6, 0, 20, 0],
+    ['HEL', 'Helsinki Vantaa', 'Helsinki', 'FI', 60.317, 24.963, 1500, .5, 0, 18, 0],
+    ['WAW', 'Varsavia Chopin', 'Varsavia', 'PL', 52.166, 20.967, 3100, .5, 0, 15, 0],
+    ['BUD', 'Budapest Liszt Ferenc', 'Budapest', 'HU', 47.437, 19.256, 3000, .8, 0, 15, 0],
+    ['OTP', 'Bucarest Otopeni', 'Bucarest', 'RO', 44.571, 26.085, 2300, .4, 0, 14, 0],
+    ['IST', 'Istanbul', 'Istanbul', 'TR', 41.275, 28.752, 15500, .9, 1, 18, 80000],
+    // Medio Oriente e Africa
+    ['DXB', 'Dubai', 'Dubai', 'AE', 25.253, 55.364, 3500, 1, 1, 30, 150000],
+    ['DOH', 'Doha Hamad', 'Doha', 'QA', 25.273, 51.608, 2400, .5, 0, 25, 0],
+    ['RUH', 'Riad King Khalid', 'Riad', 'SA', 24.958, 46.700, 7500, .3, 0, 20, 0],
+    ['TLV', 'Tel Aviv Ben Gurion', 'Tel Aviv', 'IL', 32.011, 34.887, 4000, .7, 0, 25, 0],
+    ['CAI', 'Il Cairo', 'Il Cairo', 'EG', 30.122, 31.406, 20000, .8, 0, 20, 0],
+    ['CMN', 'Casablanca Mohammed V', 'Casablanca', 'MA', 33.367, -7.590, 4300, .7, 0, 18, 0],
+    ['TUN', 'Tunisi Cartagine', 'Tunisi', 'TN', 36.851, 10.227, 2700, .8, 0, 15, 0],
+    ['LOS', 'Lagos Murtala Muhammed', 'Lagos', 'NG', 6.577, 3.321, 15000, .3, 0, 25, 0],
+    ['ADD', 'Addis Abeba Bole', 'Addis Abeba', 'ET', 8.978, 38.799, 5000, .4, 0, 15, 0],
+    ['NBO', 'Nairobi Jomo Kenyatta', 'Nairobi', 'KE', -1.319, 36.928, 5000, .7, 0, 20, 0],
+    ['JNB', 'Johannesburg O. R. Tambo', 'Johannesburg', 'ZA', -26.139, 28.246, 9000, .6, 0, 20, 0],
+    ['CPT', 'Città del Capo', 'Città del Capo', 'ZA', -33.965, 18.602, 4600, 1, 0, 20, 0],
+    // Asia e Oceania
+    ['DEL', 'Nuova Delhi Indira Gandhi', 'Nuova Delhi', 'IN', 28.556, 77.100, 30000, .6, 1, 15, 60000],
+    ['BOM', 'Mumbai Chhatrapati Shivaji', 'Mumbai', 'IN', 19.089, 72.868, 21000, .5, 1, 15, 60000],
+    ['CMB', 'Colombo Bandaranaike', 'Colombo', 'LK', 7.180, 79.884, 5600, .7, 0, 15, 0],
+    ['MLE', 'Malé Velana', 'Malé', 'MV', 4.192, 73.529, 400, 1, 0, 25, 0],
+    ['BKK', 'Bangkok Suvarnabhumi', 'Bangkok', 'TH', 13.690, 100.750, 11000, 1, 1, 18, 60000],
+    ['SGN', 'Ho Chi Minh Tan Son Nhat', 'Ho Chi Minh', 'VN', 10.819, 106.652, 9000, .7, 0, 15, 0],
+    ['KUL', 'Kuala Lumpur', 'Kuala Lumpur', 'MY', 2.746, 101.710, 8000, .7, 0, 15, 0],
+    ['SIN', 'Singapore Changi', 'Singapore', 'SG', 1.364, 103.991, 5900, .9, 1, 25, 120000],
+    ['CGK', 'Giacarta Soekarno-Hatta', 'Giacarta', 'ID', -6.126, 106.656, 33000, .5, 1, 15, 40000],
+    ['DPS', 'Bali Ngurah Rai', 'Bali', 'ID', -8.748, 115.167, 4000, 1, 0, 15, 0],
+    ['MNL', 'Manila Ninoy Aquino', 'Manila', 'PH', 14.509, 121.020, 14000, .6, 1, 15, 40000],
+    ['HKG', 'Hong Kong', 'Hong Kong', 'HK', 22.308, 113.918, 7500, .9, 1, 25, 150000],
+    ['TPE', 'Taipei Taoyuan', 'Taipei', 'TW', 25.077, 121.233, 7000, .6, 0, 20, 0],
+    ['PVG', 'Shanghai Pudong', 'Shanghai', 'CN', 31.143, 121.805, 27000, .7, 1, 20, 100000],
+    ['PEK', 'Pechino Capital', 'Pechino', 'CN', 40.080, 116.584, 21500, .7, 1, 20, 100000],
+    ['ICN', 'Seul Incheon', 'Seul', 'KR', 37.460, 126.441, 25000, .7, 1, 25, 80000],
+    ['NRT', 'Tokyo Narita', 'Tokyo', 'JP', 35.772, 140.393, 37000, .9, 1, 30, 150000],
+    ['HND', 'Tokyo Haneda', 'Tokyo', 'JP', 35.549, 139.780, 37000, .9, 1, 30, 300000],
+    ['PER', 'Perth', 'Perth', 'AU', -31.940, 115.967, 2100, .6, 0, 25, 0],
+    ['SYD', 'Sydney Kingsford Smith', 'Sydney', 'AU', -33.946, 151.177, 5300, .9, 1, 30, 100000],
+    ['MEL', 'Melbourne Tullamarine', 'Melbourne', 'AU', -37.669, 144.841, 5100, .8, 0, 25, 0],
+    ['AKL', 'Auckland', 'Auckland', 'NZ', -37.008, 174.792, 1700, .9, 0, 25, 0],
+    // Americhe
+    ['JFK', 'New York John F. Kennedy', 'New York', 'US', 40.641, -73.778, 20000, 1, 1, 35, 300000],
+    ['EWR', 'New York Newark', 'New York', 'US', 40.690, -74.174, 20000, 1, 1, 30, 200000],
+    ['BOS', 'Boston Logan', 'Boston', 'US', 42.366, -71.010, 4900, .7, 0, 25, 0],
+    ['IAD', 'Washington Dulles', 'Washington', 'US', 38.953, -77.456, 6300, .7, 0, 25, 0],
+    ['ATL', 'Atlanta Hartsfield-Jackson', 'Atlanta', 'US', 33.640, -84.427, 6100, .5, 0, 22, 0],
+    ['MIA', 'Miami', 'Miami', 'US', 25.795, -80.287, 6100, 1, 0, 25, 0],
+    ['ORD', 'Chicago O’Hare', 'Chicago', 'US', 41.978, -87.905, 9500, .6, 1, 25, 120000],
+    ['DFW', 'Dallas Fort Worth', 'Dallas', 'US', 32.899, -97.040, 7600, .4, 0, 22, 0],
+    ['DEN', 'Denver', 'Denver', 'US', 39.856, -104.674, 3000, .6, 0, 22, 0],
+    ['LAX', 'Los Angeles', 'Los Angeles', 'US', 33.942, -118.408, 13000, 1, 1, 30, 150000],
+    ['SFO', 'San Francisco', 'San Francisco', 'US', 37.621, -122.379, 7700, .9, 1, 30, 120000],
+    ['SEA', 'Seattle-Tacoma', 'Seattle', 'US', 47.450, -122.309, 4000, .6, 0, 25, 0],
+    ['YYZ', 'Toronto Pearson', 'Toronto', 'CA', 43.677, -79.624, 6200, .6, 0, 25, 0],
+    ['YUL', 'Montréal Trudeau', 'Montréal', 'CA', 45.470, -73.741, 4300, .7, 0, 25, 0],
+    ['YVR', 'Vancouver', 'Vancouver', 'CA', 49.195, -123.184, 2600, .8, 0, 25, 0],
+    ['MEX', 'Città del Messico', 'Città del Messico', 'MX', 19.436, -99.072, 21800, .6, 1, 20, 40000],
+    ['CUN', 'Cancún', 'Cancún', 'MX', 21.037, -86.877, 900, 1, 0, 20, 0],
+    ['HAV', 'L’Avana José Martí', 'L’Avana', 'CU', 22.989, -82.409, 2100, .9, 0, 15, 0],
+    ['PTY', 'Panama Tocumen', 'Panama', 'PA', 9.071, -79.383, 1900, .5, 0, 15, 0],
+    ['BOG', 'Bogotà El Dorado', 'Bogotà', 'CO', 4.702, -74.147, 11000, .5, 0, 20, 0],
+    ['LIM', 'Lima Jorge Chávez', 'Lima', 'PE', -12.022, -77.114, 11000, .6, 0, 20, 0],
+    ['GRU', 'San Paolo Guarulhos', 'San Paolo', 'BR', -23.432, -46.469, 22000, .6, 1, 20, 60000],
+    ['GIG', 'Rio de Janeiro Galeão', 'Rio de Janeiro', 'BR', -22.810, -43.251, 13500, 1, 0, 20, 0],
+    ['EZE', 'Buenos Aires Ezeiza', 'Buenos Aires', 'AR', -34.822, -58.536, 15500, .7, 0, 20, 0],
+    ['SCL', 'Santiago del Cile', 'Santiago', 'CL', -33.393, -70.786, 7000, .6, 0, 20, 0]
   ];
-  const ISOLE = new Set(['CTA', 'PMO', 'CAG', 'OLB', 'AHO', 'MLA']);
+  // Fuso orario standard (ore rispetto a UTC, ora legale non considerata) e continente per paese
+  const PAESI = {
+    IT: ['Italia', 1, 'Europa'], FR: ['Francia', 1, 'Europa'], GB: ['Regno Unito', 0, 'Europa'], ES: ['Spagna', 1, 'Europa'], PT: ['Portogallo', 0, 'Europa'],
+    NL: ['Paesi Bassi', 1, 'Europa'], BE: ['Belgio', 1, 'Europa'], DE: ['Germania', 1, 'Europa'], CH: ['Svizzera', 1, 'Europa'], AT: ['Austria', 1, 'Europa'],
+    CZ: ['Cechia', 1, 'Europa'], GR: ['Grecia', 2, 'Europa'], AL: ['Albania', 1, 'Europa'], MT: ['Malta', 1, 'Europa'], IE: ['Irlanda', 0, 'Europa'],
+    DK: ['Danimarca', 1, 'Europa'], SE: ['Svezia', 1, 'Europa'], NO: ['Norvegia', 1, 'Europa'], FI: ['Finlandia', 2, 'Europa'], PL: ['Polonia', 1, 'Europa'],
+    HU: ['Ungheria', 1, 'Europa'], RO: ['Romania', 2, 'Europa'], TR: ['Turchia', 3, 'Europa'],
+    AE: ['Emirati Arabi', 4, 'Asia'], QA: ['Qatar', 3, 'Asia'], SA: ['Arabia Saudita', 3, 'Asia'], IL: ['Israele', 2, 'Asia'],
+    EG: ['Egitto', 2, 'Africa'], MA: ['Marocco', 0, 'Africa'], TN: ['Tunisia', 1, 'Africa'], NG: ['Nigeria', 1, 'Africa'], ET: ['Etiopia', 3, 'Africa'],
+    KE: ['Kenya', 3, 'Africa'], ZA: ['Sudafrica', 2, 'Africa'],
+    IN: ['India', 5.5, 'Asia'], LK: ['Sri Lanka', 5.5, 'Asia'], MV: ['Maldive', 5, 'Asia'], TH: ['Thailandia', 7, 'Asia'], VN: ['Vietnam', 7, 'Asia'],
+    MY: ['Malesia', 8, 'Asia'], SG: ['Singapore', 8, 'Asia'], ID: ['Indonesia', 7, 'Asia'], PH: ['Filippine', 8, 'Asia'], HK: ['Hong Kong', 8, 'Asia'],
+    TW: ['Taiwan', 8, 'Asia'], CN: ['Cina', 8, 'Asia'], KR: ['Corea del Sud', 9, 'Asia'], JP: ['Giappone', 9, 'Asia'],
+    AU: ['Australia', 10, 'Oceania'], NZ: ['Nuova Zelanda', 12, 'Oceania'],
+    US: ['Stati Uniti', -5, 'Nord America'], CA: ['Canada', -5, 'Nord America'], MX: ['Messico', -6, 'Nord America'], CU: ['Cuba', -5, 'Nord America'], PA: ['Panama', -5, 'Nord America'],
+    CO: ['Colombia', -5, 'Sud America'], PE: ['Perù', -5, 'Sud America'], BR: ['Brasile', -3, 'Sud America'], AR: ['Argentina', -3, 'Sud America'], CL: ['Cile', -4, 'Sud America']
+  };
+  // Fusi diversi da quello del paese (Stati Uniti, Canada, Australia, Indonesia)
+  const FUSI = { ORD: -6, DFW: -6, DEN: -7, LAX: -8, SFO: -8, SEA: -8, YVR: -8, PER: 8, DPS: 8, CUN: -5 };
+  const ISOLE = new Set(['CTA', 'PMO', 'CAG', 'OLB', 'AHO', 'MLA', 'MLE', 'DPS']);
   const AEROPORTI = {};
   for (const [iata, nome, citta, paese, lat, lon, pop, tur, slot, tassa, slotPrezzo] of A)
-    AEROPORTI[iata] = { iata, nome, citta, paese, lat, lon, pop, tur, slot: !!slot, tassa, slotPrezzo, isola: ISOLE.has(iata) };
+    AEROPORTI[iata] = { iata, nome, citta, paese, nomePaese: PAESI[paese][0], continente: PAESI[paese][2], fuso: FUSI[iata] ?? PAESI[paese][1], lat, lon, pop, tur, slot: !!slot, tassa, slotPrezzo, isola: ISOLE.has(iata) };
 
   // Modelli: spazio in cabina (posti Economy equivalenti), prezzo nuovo (€), consumo kg/h, manutenzione €/h di blocco, costo A-check, autonomia km
   const MODELLI = {
@@ -56,7 +149,13 @@ const DATI = (() => {
     A319: { nome: 'Airbus A319', spazio: 144, tipo: 'A320', vel: 780, prezzo: 38e6, consumo: 2300, manut: 540, check: 55000, autonomia: 5500, peso: 75 },
     A320: { nome: 'Airbus A320', spazio: 180, tipo: 'A320', vel: 790, prezzo: 46e6, consumo: 2450, manut: 600, check: 60000, autonomia: 5500, peso: 78 },
     A20N: { nome: 'Airbus A320neo', spazio: 186, tipo: 'A320', vel: 800, prezzo: 56e6, consumo: 2050, manut: 560, check: 60000, autonomia: 6000, peso: 79 },
-    A321: { nome: 'Airbus A321', spazio: 220, tipo: 'A320', vel: 800, prezzo: 55e6, consumo: 2850, manut: 680, check: 70000, autonomia: 5000, peso: 93 }
+    A321: { nome: 'Airbus A321', spazio: 220, tipo: 'A320', vel: 800, prezzo: 55e6, consumo: 2850, manut: 680, check: 70000, autonomia: 5000, peso: 93 },
+    A21X: { nome: 'Airbus A321XLR', spazio: 210, tipo: 'A320', vel: 820, prezzo: 66e6, consumo: 2750, manut: 720, check: 80000, autonomia: 8700, peso: 101 },
+    A339: { nome: 'Airbus A330-900neo', spazio: 370, tipo: 'A330', vel: 870, prezzo: 110e6, consumo: 5700, manut: 2400, check: 200000, autonomia: 13300, peso: 251, lungo: true },
+    B789: { nome: 'Boeing 787-9', spazio: 360, tipo: 'B787', vel: 900, prezzo: 130e6, consumo: 5400, manut: 2300, check: 180000, autonomia: 14000, peso: 254, lungo: true },
+    A359: { nome: 'Airbus A350-900', spazio: 400, tipo: 'A350', vel: 905, prezzo: 150e6, consumo: 5800, manut: 2400, check: 200000, autonomia: 15000, peso: 283, lungo: true },
+    B77W: { nome: 'Boeing 777-300ER', spazio: 470, tipo: 'B777', vel: 900, prezzo: 160e6, consumo: 7600, manut: 3000, check: 260000, autonomia: 13600, peso: 351, lungo: true },
+    A388: { nome: 'Airbus A380', spazio: 700, tipo: 'A380', vel: 900, prezzo: 230e6, consumo: 11000, manut: 4200, check: 400000, autonomia: 15000, peso: 575, lungo: true }
   };
   for (const m of Object.values(MODELLI)) { m.posti = m.spazio; m.leasing = Math.round(m.prezzo * (m.tipo === 'ATR' ? 0.000115 : 0.00016) / 100) * 100; }
 
@@ -88,11 +187,14 @@ const DATI = (() => {
   const RIVALI = [
     { id: 'cex', nome: 'Cielo Express', colore: '#8a5cf6', hub: 'FCO', rep: 55, prezzo: 1.0, rotte: { 'FCO-LIN': 6, 'CTA-FCO': 4, 'FCO-PMO': 4, 'CDG-FCO': 3, 'FCO-LHR': 3, 'BRI-FCO': 2, 'CAG-FCO': 2, 'FCO-VCE': 2, 'FCO-TRN': 2, 'BCN-FCO': 2 } },
     { id: 'aqj', nome: 'Aquila Jet', colore: '#e07b00', hub: 'BGY', rep: 42, prezzo: 0.78, rotte: { 'BGY-CTA': 3, 'BGY-PMO': 3, 'BGY-BRI': 2, 'BGY-NAP': 3, 'BGY-CAG': 2, 'BCN-BGY': 2, 'BGY-MAD': 1, 'ATH-BGY': 1, 'BGY-OLB': 1 } },
-    { id: 'ven', nome: 'Ventura Air', colore: '#0f9d8a', hub: 'LIN', rep: 68, prezzo: 1.2, rotte: { 'FCO-LIN': 5, 'LIN-NAP': 3, 'CTA-LIN': 2, 'BRI-LIN': 2, 'LHR-LIN': 2, 'CDG-LIN': 2, 'FRA-LIN': 2, 'AMS-LIN': 1 } }
+    { id: 'ven', nome: 'Ventura Air', colore: '#0f9d8a', hub: 'LIN', rep: 68, prezzo: 1.2, rotte: { 'FCO-LIN': 5, 'LIN-NAP': 3, 'CTA-LIN': 2, 'BRI-LIN': 2, 'LHR-LIN': 2, 'CDG-LIN': 2, 'FRA-LIN': 2, 'AMS-LIN': 1 } },
+    { id: 'mer', nome: 'Meridian Global', colore: '#c2255c', hub: 'DXB', rep: 76, prezzo: 1.1, raggio: 14000, rotte: { 'DXB-LHR': 3, 'CDG-DXB': 2, 'DXB-FCO': 2, 'DXB-MXP': 1, 'BKK-DXB': 2, 'DXB-SIN': 2, 'DEL-DXB': 3, 'BOM-DXB': 3, 'DXB-JFK': 1, 'DXB-SYD': 1, 'DXB-JNB': 1 } },
+    { id: 'nst', nome: 'Northstar Airlines', colore: '#3b5bdb', hub: 'JFK', rep: 60, prezzo: 1.05, raggio: 12000, rotte: { 'JFK-LHR': 4, 'CDG-JFK': 2, 'FCO-JFK': 1, 'JFK-MXP': 1, 'JFK-LAX': 6, 'JFK-MIA': 5, 'JFK-SFO': 4, 'JFK-ORD': 5, 'BOS-JFK': 3, 'GRU-JFK': 1, 'JFK-MEX': 2, 'CUN-JFK': 2 } },
+    { id: 'pac', nome: 'Pacific Crest', colore: '#2b8a3e', hub: 'SIN', rep: 72, prezzo: 1.0, raggio: 12000, rotte: { 'HKG-SIN': 4, 'BKK-SIN': 4, 'KUL-SIN': 6, 'CGK-SIN': 5, 'NRT-SIN': 2, 'SIN-SYD': 3, 'DPS-SIN': 3, 'LHR-SIN': 1, 'FRA-SIN': 1, 'DEL-SIN': 2, 'MNL-SIN': 3, 'ICN-SIN': 2 } }
   ];
 
   // Scenari
-  const g = (y, m, d, h = 5) => new Date(y, m - 1, d, h, 0).getTime();
+  const g = (y, m, d) => [y, m, d];
   const SCENARI = {
     primo: {
       nome: 'Primo decollo', difficolta: 'Normale', durata: 1095, inizio: g(2027, 3, 1), sceltaBase: true,
@@ -118,6 +220,13 @@ const DATI = (() => {
       descr: '40 milioni, due A320 in leasing, nessuna scadenza. Fai crescere il valore della compagnia.',
       obiettivi: 'Nessun obiettivo: conta il valore della compagnia.',
       cassa: 40e6, flotta: [['A320', 'leasing'], ['A320', 'leasing']], personale: { CMD: { A320: 10 }, FO: { A320: 10 }, CC: 10, ADV: 30 }
+    },
+    globale: {
+      nome: 'Compagnia globale', difficolta: 'Difficile', durata: 1825, inizio: g(2027, 3, 1), sceltaBase: true, mondo: true,
+      descr: 'Base dove vuoi nel mondo, 150 milioni, un A330-900neo e due A320 in leasing. Costruisci una rete intercontinentale.',
+      obiettivi: 'Collega 5 continenti e porta il valore della compagnia a 400 M€ entro 5 anni.',
+      cassa: 150e6, flotta: [['A339', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']],
+      personale: { CMD: { A330: 9, A320: 10 }, FO: { A330: 17, A320: 10 }, CC: 18, ADV: 70 }
     }
   };
 
@@ -138,9 +247,11 @@ const DATI = (() => {
     ['reputazione-80', 'Amati dai clienti', 'Porta la reputazione a 80'],
     ['hub', 'Snodo', 'Trasforma una base in hub'],
     ['transito', 'Coincidenze', 'Fai transitare 1.000 passeggeri in una settimana'],
-    ['marketing', 'In onda', 'Lancia la prima campagna pubblicitaria']
+    ['marketing', 'In onda', 'Lancia la prima campagna pubblicitaria'],
+    ['intercontinentale', 'Oltreoceano', 'Opera una rotta di oltre 5.000 km'],
+    ['continenti', 'Giro del mondo', 'Vola in 5 continenti']
   ];
 
-  return { AEROPORTI, MODELLI, CLASSI, HUB, MARKETING, RUOLI, SERVIZIO, RIVALI, SCENARI, TRAGUARDI };
+  return { AEROPORTI, PAESI, MODELLI, CLASSI, HUB, MARKETING, RUOLI, SERVIZIO, RIVALI, SCENARI, TRAGUARDI };
 })();
 if (typeof module !== 'undefined') module.exports = DATI;
