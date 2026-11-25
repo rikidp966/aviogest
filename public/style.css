@@ -451,3 +451,26 @@ button, a, input, select { touch-action: manipulation; }
   .pass-stub .codice { font-size: 22px; }
   .tip { max-width: calc(100vw - 24px); }
 }
+
+/* ---------- Equipaggi nei turni ---------- */
+.turni li { display: flex; flex-direction: column; gap: 6px; }
+.turni li.scoperto { border-left-color: var(--err); background: var(--err-bg); }
+.turno-eq { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.eq { font: 600 13px/1 var(--f-mono); padding: 4px 8px; border-radius: 4px; }
+.eq.ok { background: var(--barra); color: var(--segnale); }
+.eq.attesa { background: var(--accento-bg); color: var(--accento); }
+.eq.no { background: var(--err); color: #fff; }
+.sel-eq { font-size: 12px; padding: 4px 6px; }
+button.cambio { margin-top: 4px; font-size: 11px; padding: 3px 7px; border-style: dashed; color: var(--testo-2); background: transparent; }
+button.cambio.on { border-style: solid; background: var(--segnale); border-color: var(--segnale); color: var(--segnale-testo); }
+.mancano { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin: 16px 0; padding: 14px 16px; border-radius: var(--raggio); background: var(--err-bg); border: 1px solid var(--err); color: var(--testo); }
+.mancano > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.mancano b { color: var(--err); font: 700 17px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .04em; }
+/* turni della settimana per equipaggio */
+table.roster { min-width: 760px; }
+table.roster td { vertical-align: top; white-space: normal; padding: 6px; border-left: 1px solid var(--bordo); }
+table.roster td:first-child { border-left: 0; white-space: nowrap; }
+table.roster tr.scoperto td { background: var(--err-bg); }
+.turno-chip { display: block; font: 500 11px/1.3 var(--f-mono); background: var(--surface-2); border: 1px solid var(--bordo); border-radius: 4px; padding: 3px 5px; margin-bottom: 3px; white-space: nowrap; }
+.turno-chip b { color: var(--accento); }
+tr.scoperto .turno-chip { background: var(--surface); border-color: var(--err); }

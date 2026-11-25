@@ -307,8 +307,8 @@ function live() {
     </div>
     <div class="mt piccolo">Reputazione</div>${barretta(G.reputazione / 100, Math.round(G.reputazione), [2, 2])}
     <div class="piccolo">Morale del personale</div>${barretta(G.morale / 100, Math.round(G.morale), [2, 2])}
-    <div class="piccolo">Copertura equipaggi (base più scoperta)</div>${barretta(Math.min(cop.min, 1.5) / 1.5, pct(Math.min(cop.min, 9)), [2, 2])}
-    ${cop.min < 1 ? '<p class="piccolo neg">Equipaggi insufficienti in qualche base: rischio cancellazioni. Vedi Personale.</p>' : ''}
+    <div class="piccolo">Turni con equipaggio</div>${barretta(cop.min, `${cop.turni - cop.scoperte}/${cop.turni}`, [2, 2])}
+    ${cop.scoperte ? `<p class="piccolo neg">${cop.scoperte} turni della settimana senza equipaggio: quei voli verranno cancellati. <a href="#/personale">Assumi</a></p>` : ''}
     ${G.cassa < 0 ? '<p class="piccolo neg">Cassa negativa! Sotto −2 M€ per 10 giorni la compagnia fallisce.</p>' : ''}`;
 }
 function notizieHTML(n) {
@@ -352,7 +352,7 @@ function tabellaOggi() {
     return `<div class="scheda"><div class="riga"><b>${h(v.num)} · ${v.da} → ${v.a}</b>${badgeVolo(v)}</div><div class="riga muto"><span>${SIM.mezzanotte(v.dep) !== g0 ? 'domani ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` → ${fmtOra(v.depEff)}` : ''} – ${fmtOra(v.arrEff || v.arr)}</span><span>${h(ae?.marche || '')}</span></div><div>${chipCab(cab, vend)}${somma(v.t) ? `<span class="chip">${somma(v.t)} in transito</span>` : ''}</div><div class="riga"><span class="muto">Incassato</span><b>${eur(somma(v.inc))}</b></div></div>`; }).join('')}</div>`;
   return `<div class="tabellone">` + schede + `<table class="solo-desktop"><thead><tr><th>Volo</th><th>Tratta</th><th>Aereo · equipaggio</th><th>Partenza</th><th>Arrivo</th><th>Venduti per classe</th><th class="num">In transito</th><th class="num">Incassato</th><th>Stato</th></tr></thead><tbody>
     ${lista.map(v => { const ae = G.aerei.find(a => a.id === v.ae), cab = ae ? ae.cab : SIM.zero(), vend = { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y };
-      return `<tr><td><b>${h(v.num)}</b></td><td>${v.da} → ${v.a} <span class="muto piccolo">${h(citta(v.da))}–${h(citta(v.a))}</span></td><td>${h(ae?.marche || '—')} <span class="muto piccolo">base ${v.base}${v.fineTurno ? ', rientro' : ''}</span></td>
+      return `<tr><td><b>${h(v.num)}</b></td><td>${v.da} → ${v.a} <span class="muto piccolo">${h(citta(v.da))}–${h(citta(v.a))}</span></td><td>${h(ae?.marche || '—')} <span class="muto piccolo">${h(SIM.equipaggioDi(G, v)?.nome || 'senza equipaggio')}</span></td>
       <td class="ora-tab">${SIM.mezzanotte(v.dep) !== g0 ? '<span class="muto piccolo">domani</span> ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` <span class="muto piccolo">→ ${fmtOra(v.depEff)}</span>` : ''}${locale(v.dep, v.da)}</td><td class="ora-tab">${fmtOra(v.arrEff || v.arr)}${locale(v.arrEff || v.arr, v.a)}</td>
       <td>${chipCab(cab, vend)}</td><td class="num">${somma(v.t) || ''}</td><td class="num">${eur(somma(v.inc))}</td><td>${badgeVolo(v)}</td></tr>`; }).join('')}</tbody></table>
     <p class="nota">I biglietti si vendono nei tre giorni prima della partenza. “In transito” sono i passeggeri che proseguono con una tua coincidenza in un hub.</p></div>`;
@@ -366,10 +366,10 @@ function tabellaRegistro() {
       <td>${barretta(r.posti ? r.pax / r.posti : 0, `${r.pax}/${r.posti}`, [2, 2])}</td><td class="num">${rc.J ? eur(rc.J) : ''}</td><td class="num">${rc.W ? eur(rc.W) : ''}</td><td class="num">${eur(rc.Y)}</td><td class="num">${eur(r.ricavi)}</td><td class="num">${eur(r.costi)}</td><td class="num">${segno(r.ricavi - r.costi)}</td>
       <td>${r.stato === 'canc' ? `<span class="badge b-err">Cancellato</span> <span class="muto piccolo">${h(r.motivo)}</span>` : r.rit > 15 ? '<span class="badge b-warn">In ritardo</span>' : '<span class="badge b-ok">Puntuale</span>'}</td></tr>`; }).join('')}</tbody></table>`;
 }
-const VOCI = { carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Rientro equipaggi fuori base', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
+const VOCI = { carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
 function dettaglioVolo(r) {
   const pc = r.paxC || SIM.zero(), rc = r.ricaviC || SIM.zero(), cab = r.cab || SIM.zero();
-  modale({ titolo: `Volo ${h(r.num)} · ${r.da} → ${r.a}`, corpo: `<p>${fmtData(r.dep)} · ${h(r.marche)} · equipaggio di ${h(r.base || '—')} · ${r.stato === 'canc' ? 'cancellato: ' + h(r.motivo) : `partito ${fmtOra(r.depEff)} (ritardo ${r.rit}′), atterrato ${fmtOra(r.arrEff)}`}</p>
+  modale({ titolo: `Volo ${h(r.num)} · ${r.da} → ${r.a}`, corpo: `<p>${fmtData(r.dep)} · ${h(r.marche)} · equipaggio ${h(r.equip || '—')} (base ${h(r.base || '—')}) · ${r.stato === 'canc' ? 'cancellato: ' + h(r.motivo) : `partito ${fmtOra(r.depEff)} (ritardo ${r.rit}′), atterrato ${fmtOra(r.arrEff)}`}</p>
     <h3>Biglietti</h3><table><thead><tr><th>Classe</th><th class="num">Posti</th><th class="num">Venduti</th><th>Riempimento</th><th class="num">Tariffa media</th><th class="num">Ricavo</th></tr></thead><tbody>
     ${CL.filter(c => cab[c]).map(c => `<tr><td><span class="chip"><i style="background:var(--cl-${c})"></i>${CLS[c].nome}</span></td><td class="num">${cab[c]}</td><td class="num">${pc[c]}</td><td>${barretta(pc[c] / cab[c], null, [2, 2])}</td><td class="num">${pc[c] ? eur(rc[c] / pc[c]) : '—'}</td><td class="num">${eur(rc[c])}</td></tr>`).join('')}
     <tr><td><b>Totale</b></td><td class="num">${r.posti}</td><td class="num"><b>${r.pax}</b></td><td></td><td class="num">${r.pax ? eur(r.ricavi / r.pax) : '—'}</td><td class="num"><b>${eur(r.ricavi)}</b></td></tr></tbody></table>
@@ -456,6 +456,7 @@ VISTE.programmazione = () => {
     <div class="lista-aerei">${f.map(a => { const mc = SIM.mediaCiclo(a); return `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span><b class="mono">${h(a.marche)}</b> <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${mc.tratte.length} voli · ${Math.round(mc.ore * 7)} h</span></button>`; }).join('')}</div>
     <div class="pannello" id="editor">${editor(ae)}</div>
   </div>
+  <div id="bannerProg">${bannerMancanti()}</div>
   <div class="pannello mt"><h2>Oggi · tutta la flotta</h2><div class="tab-wrap">${cronoprogramma()}</div></div>`;
 };
 // Griglia della settimana: una riga per giorno, 24 ore; i voli dopo mezzanotte continuano sulla riga del giorno dopo
@@ -475,9 +476,9 @@ function settimanaGriglia(v, errDi) {
 function editor(ae) {
   const m = MOD[ae.modello], prog = { turn: bozza.turn, giorni: bozza.giorni }, v = SIM.validaProgramma(G, ae, prog);
   const g = bozza.giorni[bozza.sel], ultimo = g.scali.at(-1), gv = v.giorni[bozza.sel] || { legs: [], turni: [] }, nome = GS[bozza.sel];
-  const dest = Object.keys(G.rotte).map(k => k.split('-')).filter(p => p.includes(ultimo)).map(p => p[0] === ultimo ? p[1] : p[0]).map(d => ({ d, k: SIM.km(ultimo, d) })).sort((a, b) => a.k - b.k);
+  const dest = Object.values(AP).filter(a => a.iata !== ultimo).map(a => ({ d: a.iata, k: SIM.km(ultimo, a.iata), aperta: !!G.rotte[SIM.chiave(ultimo, a.iata)] })).filter(x => x.k <= m.autonomia).sort((a, b) => a.k - b.k);
   const modificato = JSON.stringify({ turn: bozza.turn, giorni: bozza.giorni }) !== bozza.orig;
-  const basiRientro = G.basi.filter(b => b !== ultimo && G.rotte[SIM.chiave(ultimo, b)]);
+  const basiRientro = g.scali.length > 1 ? G.basi.filter(b => b !== ultimo && SIM.km(ultimo, b) <= m.autonomia) : [];
   const errDi = i => v.E.some(e => e.startsWith(GS[i] + ':'));
   const minimi = SIM.legsGiorno(ae, { ...g, attese: [] }, bozza.turn);
   return `<div class="testata" style="margin-bottom:10px"><h2 style="margin:0"><span class="mono">${h(ae.marche)}</span> · ${m.nome}</h2><span class="sotto">${cabTesto(ae.cab)} · autonomia ${num(m.autonomia)} km</span></div>
@@ -491,14 +492,14 @@ function editor(ae) {
       </div></div>
     <div class="tratte">${gv.legs.length ? gv.legs.map((l, i) => { const r = G.rotte[SIM.chiave(l.da, l.a)], extra = g.attese?.[i] || 0;
       return `<div class="tratta-riga"><span class="n">${i + 1}</span>
-        <span class="orario-volo">${i === 0 ? `<b class="mono">${oraMin(l.dep)}</b>` : `<input type="time" class="ora-volo" data-leg="${i}" value="${SIM.oraDaMin(l.dep)}" step="300" aria-label="Partenza del volo ${i + 1}">`}<small>${i > 0 ? (extra ? `+${extra} min a terra` : 'al più presto') : 'primo volo'}</small></span>
+        <span class="orario-volo">${i === 0 ? `<b class="mono">${oraMin(l.dep)}</b>` : `<input type="time" class="ora-volo" data-leg="${i}" value="${SIM.oraDaMin(l.dep)}" step="300" aria-label="Partenza del volo ${i + 1}">`}<small>${i > 0 ? (extra ? `+${extra} min a terra` : 'al più presto') : 'primo volo'}</small>${i > 0 ? `<button type="button" class="cambio ${g.cambi?.[i] ? 'on' : ''}" data-az="p-cambio" data-i="${i}" aria-pressed="${!!g.cambi?.[i]}" title="Qui sale un nuovo equipaggio">⇄ cambio equipaggio</button>` : ''}</span>
         <span><b>${l.da} → ${l.a}</b> <span class="muto">${h(citta(l.da))}–${h(citta(l.a))}</span><br><span class="piccolo">${oraMin(l.dep)}${localeMin(l.dep, l.da)} – ${oraMin(l.arr)}${localeMin(l.arr, l.a)} · ${fmtDur(l.dur)} · ${num(SIM.km(l.da, l.a))} km${r ? ` · ${CL.filter(c => ae.cab[c]).map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}` : ''}${G.hub.includes(l.a) ? ' · <b>arrivo in hub</b>' : ''}</span></span>
         <span>${i === gv.legs.length - 1 ? `<button class="piccolo" data-az="p-togli">Togli</button>` : ''}</span></div>`; }).join('')
       : `<p class="muto">Nessun volo: l’aereo resta a terra a ${g.scali[0]} tutto il giorno.</p>`}</div>
     <div class="filtri mt">
-      <select id="pDest">${dest.length ? opzioni(dest.map(x => [x.d, `${x.d} · ${citta(x.d)} · ${num(x.k)} km${x.k > m.autonomia ? ' (fuori autonomia)' : ''}${G.basi.includes(x.d) ? ' · base' : ''}`]), '') : '<option value="">Nessuna rotta aperta da ' + ultimo + '</option>'}</select>
+      <select id="pDest" aria-label="Prossimo scalo">${[['Rotte già aperte', dest.filter(x => x.aperta)], ['Da aprire · 30.000 € di lancio', dest.filter(x => !x.aperta)]].map(([t, l]) => l.length ? `<optgroup label="${t}">${l.map(x => `<option value="${x.d}">${x.d} · ${h(citta(x.d))} · ${num(x.k)} km${G.basi.includes(x.d) ? ' · base' : ''}</option>`).join('')}</optgroup>` : '').join('')}</select>
       <button data-az="p-aggiungi" ${dest.length ? '' : 'disabled'}>Aggiungi volo</button>
-      ${basiRientro.map(b => `<button data-az="p-rientra" data-b="${b}">Chiudi a ${b}</button>`).join('')}
+      ${basiRientro.map(b => `<button data-az="p-rientra" data-b="${b}">Torna a ${b}${G.rotte[SIM.chiave(ultimo, b)] ? '' : ' (apre la rotta)'}</button>`).join('')}
       ${g.scali.length > 2 && ultimo === g.scali[0] ? `<button data-az="p-ripeti">Ripeti il giro</button>` : ''}
       ${g.scali.length > 1 ? `<button class="pericolo" data-az="p-svuota">Svuota ${nome.toLowerCase()}</button>` : ''}
     </div>
@@ -507,10 +508,40 @@ function editor(ae) {
       <button class="piccolo" data-az="p-copia" data-dove="feriali">lun–ven</button>
       <button class="piccolo" data-az="p-copia" data-dove="weekend">sab–dom</button>
       <button class="piccolo" data-az="p-copia" data-dove="tutti">tutta la settimana</button></div>
-    ${gv.turni.length ? `<b class="piccolo">Equipaggi di ${nome.toLowerCase()}</b><ul class="turni">${gv.turni.map((t, i) => `<li>Turno ${i + 1}: base <b>${t.base}</b> · servizio dalle ${oraMin(t.legs[0].dep - 60)}, ${fmtDur(t.fine - t.inizio)} (${fmtDur(t.blocco)} di volo)${t.lungo ? ' · <b>lungo raggio, 3 piloti</b>' : ''}${t.albergo ? ' · equipaggio in albergo fuori base' : ''} · ${t.legs.length} voli · ${t.termina === t.base ? 'rientra a casa' : `<span style="color:var(--warn)">finisce a ${t.termina}: albergo o rientro a pagamento</span>`}</li>`).join('')}</ul>` : ''}
+    ${turniGiornoHTML(ae, v, modificato, nome.toLowerCase())}
+    ${v.piano.sforati.length ? `<div class="filtri mt"><button class="primario" data-az="p-sistema">Sistema i turni</button><span class="piccolo muto">Inserisce i cambi equipaggio dove un turno supera i limiti (anche fuori base, con l’equipaggio che arriva da passeggero)</span></div>` : ''}
     <div class="sett-sintesi"><div><small>Voli a settimana</small><b>${v.voliSett}</b></div><div><small>Ore di volo a settimana</small><b>${num(v.oreSett, 1)}</b></div><div><small>Notti</small><b class="mono piccolo">${bozza.giorni.map((x, i) => GS3[i] + ' ' + x.scali.at(-1)).join(' · ')}</b></div></div>
     ${v.E.length || v.W.length ? `<ul class="problemi">${v.E.map(e => `<li class="errore">✖ ${h(e)}</li>`).join('')}${v.W.map(e => `<li class="avviso">▲ ${h(e)}</li>`).join('')}</ul>` : v.voliSett ? '<ul class="problemi"><li class="ok">✓ Programma coerente: notti in base, turni nei limiti, settimana che si chiude su se stessa</li></ul>' : ''}
     <div class="filtri mt"><button class="primario" data-az="p-salva" ${v.E.length || !modificato ? 'disabled' : ''}>Salva programma</button>${modificato ? '<button data-az="p-annulla">Annulla modifiche</button><span class="piccolo muto">Modifiche non salvate</span>' : ''}</div>`;
+}
+// Turni del giorno scelto, ognuno con il suo equipaggio (anteprima se il programma non è ancora salvato)
+function turniGiornoHTML(ae, v, modificato, nome) {
+  const gv = v.giorni[bozza.sel]; if (!gv.turni.length) return '';
+  const r = modificato ? SIM.roster(G, { sost: { id: ae.id, prog: { turn: bozza.turn, giorni: bozza.giorni } } }) : SIM.roster(G);
+  const rf = SIM.roster(G, modificato ? { futuri: true, sost: { id: ae.id, prog: { turn: bozza.turn, giorni: bozza.giorni } } } : { futuri: true });
+  return `<b class="piccolo">Equipaggi di ${nome}</b><ul class="turni">${gv.turni.map((t, i) => {
+    const k = `${ae.id}#${t.idx}`, c = r.catene.find(x => x.chiavi.includes(k)), eq = c?.eq && G.equipaggi.find(e => e.id === c.eq);
+    const cf = rf.catene.find(x => x.chiavi.includes(k)), futuro = !eq && cf?.eq && G.equipaggi.find(e => e.id === cf.eq);
+    const desc = `<b>Turno ${i + 1}</b> · base ${t.base || '—'} · dalle ${oraMin(t.legs[0].dep - 60)}, ${fmtDur(t.fine - t.inizio)} di servizio (${fmtDur(t.blocco)} di volo) · ${t.piloti} piloti${t.lungo ? ' (lungo raggio)' : t.rinforzo ? ' (rinforzo)' : ''}${t.posizionato ? ' · arriva da passeggero' : ''}${t.continua ? ' · lo stesso equipaggio della sera prima' : ''} · ${t.legs.map(l => l.da).join('–')}–${t.termina}${t.termina === t.base ? '' : ` <span style="color:var(--warn)">(finisce fuori base)</span>`}`;
+    let q;
+    if (eq) q = `<span class="eq ok">${h(eq.nome)} · cpt. ${h(eq.capo)}</span>${modificato ? '<span class="muto piccolo">anteprima: salva per confermare</span>' : selettoreEquipaggio(k, c)}`;
+    else if (futuro) q = `<span class="eq attesa">${h(futuro.nome)} · operativo dal ${fmtGiorno(futuro.pronto)}</span><span class="muto piccolo">fino ad allora il turno è scoperto</span>`;
+    else q = `<span class="eq no">Nessun equipaggio</span><span class="muto piccolo">${h(c?.perche || '')}</span>${c?.base ? `<button class="piccolo primario" data-az="assumi-eq" data-b="${c.base}" data-t="${c.tipo}" data-p="${c.piloti}" data-c="${c.cabina}">Assumi · 10 gg · ${mln(SIM.costoAssunzione(c, false))}</button><button class="piccolo" data-az="assumi-eq" data-urg="1" data-b="${c.base}" data-t="${c.tipo}" data-p="${c.piloti}" data-c="${c.cabina}">Urgente · 2 gg · ${mln(SIM.costoAssunzione(c, true))}</button>` : ''}`;
+    return `<li class="${eq ? '' : 'scoperto'}"><div>${desc}</div><div class="turno-eq">${q}</div></li>`;
+  }).join('')}</ul>`;
+}
+function selettoreEquipaggio(k, c) {
+  const adatti = G.equipaggi.filter(e => e.stato === 'attivo' && e.base === c.base && e.tipo === c.tipo && e.piloti >= c.piloti && e.cabina >= c.cabina);
+  if (adatti.length < 2) return '';
+  return `<select class="sel-eq" data-turno="${k}" aria-label="Scegli l’equipaggio del turno">${opzioni([['', 'Assegnazione automatica'], ...adatti.map(e => [e.id, `${e.nome} · cpt. ${e.capo}`])], G.fissi?.[k] || '')}</select>`;
+}
+// Riquadro "mancano equipaggi" con assunzione a un tocco
+function bannerMancanti() {
+  const n = SIM.A.stimaMancanti(G, false), u = SIM.A.stimaMancanti(G, true);
+  if (!n.n) return '';
+  const gruppi = {}; for (const e of n.equipaggi) { const k = `${e.base} · ${e.tipo} · ${e.piloti} piloti + ${e.cabina} cabina`; gruppi[k] = (gruppi[k] || 0) + 1; }
+  return `<div class="mancano"><div><b>${n.n === 1 ? 'Manca 1 equipaggio' : `Mancano ${n.n} equipaggi`} per coprire tutti i turni della settimana</b><span class="piccolo">${Object.entries(gruppi).map(([k, q]) => `${q}× ${k}`).join(' · ')}</span></div>
+    <div class="filtri" style="margin:0"><button class="primario" data-az="assumi-mancanti">Assumi tutti · 10 giorni · ${mln(n.costo)}</button><button data-az="assumi-mancanti" data-urg="1">Urgente · 2 giorni · ${mln(u.costo)}</button></div></div>`;
 }
 function cronoprogramma() {
   const oggi = SIM.mezzanotte(G.ora), pos = t => Math.max(0, Math.min(100, (t - oggi) / GIORNO * 100));
@@ -724,8 +755,8 @@ VISTE.mercato = () => `
   <div class="carte">${UI.mercatoTab === 'nuovi' ? Object.entries(MOD).map(([k, m]) => cartaModello(k, m)).join('') : G.mercato.length ? G.mercato.map(cartaUsato).join('') : '<p class="vuoto">Nessuna offerta questa settimana. Il mercato si aggiorna ogni lunedì.</p>'}</div>
   <p class="nota">Al momento dell’ordine scegli la base di consegna e la configurazione della cabina (Business, Premium Economy, Economy). Nuovi: consegna in 30 giorni. Usati: 5 giorni, 9 se rifai la cabina. Il leasing richiede un deposito di 30 giorni di canone.</p>`;
 function avvisoPiloti(mod) {
-  const t = MOD[mod].tipo, ha = Object.values(G.personale).reduce((s, P) => s + (P.CMD[t] || 0), 0) + G.formazione.filter(f => f.tipo === t).length;
-  return ha ? '' : `<p class="piccolo" style="color:var(--warn)">▲ Nessun pilota abilitato ${t}: assumili o riqualificali in Personale.</p>`;
+  const t = MOD[mod].tipo, ha = G.equipaggi.some(e => e.tipo === t);
+  return ha ? '' : `<p class="piccolo" style="color:var(--warn)">▲ Nessun equipaggio abilitato ${t}: assumilo o riqualificane uno in Personale.</p>`;
 }
 function cartaModello(k, m) {
   const costoOra = m.consumo * G.carburante + m.manut;
@@ -760,59 +791,63 @@ function formAcquisto({ mod, usato }) {
   });
 }
 
-/* Personale per base */
+/* Personale: equipaggi con nome */
+const TIPI = () => [...new Set(Object.values(MOD).map(m => m.tipo))];
 VISTE.personale = () => {
-  const cop = SIM.copertura(G), costo = SIM.costiFissi(G).personale;
-  const tipiFlotta = [...new Set(flotta().map(a => MOD[a.modello].tipo))];
-  let s = `<div class="testata"><h1>Personale</h1><span class="sotto">${SIM.totPersonale(G)} persone in ${G.basi.length} basi · ${eur(costo)} al giorno</span></div>
+  const cop = SIM.copertura(G), r = SIM.roster(G), costo = SIM.costiFissi(G).personale;
+  const attivi = G.equipaggi.filter(e => e.stato === 'attivo'), arrivo = G.equipaggi.filter(e => e.stato !== 'attivo');
+  let s = `<div class="testata"><h1>Personale</h1><span class="sotto">${G.equipaggi.length} equipaggi, ${SIM.totPersonale(G)} persone · ${eur(costo)} al giorno. Ogni equipaggio fa al massimo ${SIM.MAX_TURNI} turni e ${SIM.MAX_ORE} ore di volo a settimana, con almeno 12 ore di riposo tra un turno e l’altro.</span><span class="spazio"></span><button class="primario" data-az="nuovo-equipaggio">+ Nuovo equipaggio</button></div>
   <div class="kpi">
+    <div><small>Equipaggi operativi</small><b>${attivi.length}</b><span>${arrivo.length ? arrivo.length + ' in arrivo o in formazione' : 'nessuno in arrivo'}</span></div>
+    <div><small>Turni coperti</small><b>${cop.turni - cop.scoperte}/${cop.turni}</b><span>questa settimana</span></div>
+    <div><small>Ore di volo medie</small><b>${num(cop.oreMedie, 1)} h</b><span>per equipaggio a settimana (max ${SIM.MAX_ORE})</span></div>
     <div><small>Morale</small><b>${Math.round(G.morale)}/100</b><span>${G.morale < 30 ? 'rischio sciopero!' : G.morale < 50 ? 'basso' : 'buono'}</span></div>
-    <div><small>Copertura minima</small><b>${pct(Math.min(cop.min, 9))}</b><span>sotto il 90% si cancellano voli</span></div>
-    <div><small>Turni al giorno</small><b>${num(Object.values(cop.f).reduce((a, x) => a + x.turni, 0), 1)}</b><span>in media sul ciclo</span></div>
-  </div>`;
+  </div>
+  ${bannerMancanti()}`;
   for (const b of G.basi) {
-    const P = SIM.squadra(G, b), f = cop.f[b] || { CMD: {}, FO: {}, CC: 0, ADV: 0, turni: 0 }, cb = cop.basi[b];
-    const tipi = [...new Set([...Object.keys(f.CMD), ...Object.keys(P.CMD).filter(t => P.CMD[t]), ...Object.keys(P.FO).filter(t => P.FO[t]), ...tipiFlotta])].sort();
-    const arrivo = (r, t) => G.formazione.filter(x => x.base === b && x.ruolo === r && (x.tipo || null) === (t || null)).reduce((a, x) => a + x.n, 0);
-    const riga = (r, t) => {
-      const ha = t ? (P[r][t] || 0) : P[r], serve = t ? (f[r][t] || 0) : f[r], c = serve ? ha / serve : null;
-      return `<tr><td>${D.RUOLI[r].nome}</td><td>${t || '<span class="muto">tutti i tipi</span>'}</td><td class="num">${ha}</td><td class="num">${serve}</td><td class="num">${arrivo(r, t) || ''}</td>
-        <td>${c == null ? '<span class="muto">—</span>' : barretta(Math.min(c, 1.5) / 1.5, pct(c), [2, 2])}</td>
-        <td><button class="piccolo" data-az="assumi" data-b="${b}" data-r="${r}" data-t="${t || ''}" data-n="1">+1</button> <button class="piccolo" data-az="assumi" data-b="${b}" data-r="${r}" data-t="${t || ''}" data-n="5">+5</button> <button class="piccolo" data-az="licenzia" data-b="${b}" data-r="${r}" data-t="${t || ''}">−1</button>
-        ${G.basi.length > 1 ? ` <button class="piccolo" data-az="trasferisci-pers" data-b="${b}" data-r="${r}" data-t="${t || ''}">Trasferisci</button>` : ''}${t ? ` <button class="piccolo" data-az="riqualifica" data-b="${b}" data-r="${r}" data-t="${t}">Riqualifica</button>` : ''}</td></tr>`;
-    };
-    s += `<div class="pannello"><div class="testata" style="margin-bottom:8px"><h2 style="margin:0">Base di ${h(citta(b))} (${b})${G.hub.includes(b) ? ' · hub' : ''}</h2><span class="sotto">${num(f.turni, 1)} turni al giorno partono da qui${cb ? ` · copertura ${pct(Math.min(cb.min, 9))}` : ''}</span></div>
-      <div class="tab-wrap"><table><thead><tr><th>Ruolo</th><th>Abilitazione</th><th class="num">In servizio</th><th class="num">Necessari</th><th class="num">In arrivo</th><th>Copertura</th><th></th></tr></thead><tbody>
-      ${tipi.map(t => riga('CMD', t)).join('')}${tipi.map(t => riga('FO', t)).join('')}${riga('CC')}${riga('ADV')}</tbody></table></div></div>`;
+    const eqB = G.equipaggi.filter(e => e.base === b), scop = r.scoperte.filter(c => c.base === b);
+    s += `<div class="pannello"><div class="testata" style="margin-bottom:8px"><h2 style="margin:0">Base di ${h(citta(b))} (${b})${G.hub.includes(b) ? ' · hub' : ''}</h2><span class="sotto">${eqB.length} equipaggi${scop.length ? ` · <span class="neg">${scop.length} turni scoperti</span>` : ''}</span></div>
+      ${eqB.length ? `<div class="tab-wrap"><table><thead><tr><th>Equipaggio</th><th>Abilitazione</th><th>Composizione</th><th class="num">Turni</th><th>Ore di volo</th><th class="num">Paga/giorno</th><th>Stato</th><th></th></tr></thead><tbody>
+      ${eqB.map(e => { const x = r.carico.get(e.id) || { turni: 0, min: 0 };
+        return `<tr><td><b class="mono">${h(e.nome)}</b> <span class="muto">cpt. ${h(e.capo)}</span></td><td>${e.tipo}</td><td>${e.piloti} piloti + ${e.cabina} cabina</td><td class="num">${x.turni}/${SIM.MAX_TURNI}</td>
+        <td>${barretta(x.min / 60 / SIM.MAX_ORE, num(x.min / 60, 1) + ' h', [0.9, 1])}</td><td class="num">${eur(SIM.pagaEquipaggio(e) * G.stipendio)}</td>
+        <td>${e.stato === 'attivo' ? (x.turni ? '<span class="badge b-ok">In servizio</span>' : '<span class="badge">Riserva</span>') : `<span class="badge b-info">Dal ${fmtGiorno(e.pronto)}</span> <span class="muto piccolo">${h(e.motivo)}</span>`}</td>
+        <td>${G.basi.length > 1 ? `<button class="piccolo" data-az="eq-trasferisci" data-id="${e.id}">Trasferisci</button> ` : ''}<button class="piccolo" data-az="eq-riqualifica" data-id="${e.id}">Riqualifica</button> <button class="piccolo pericolo" data-az="eq-licenzia" data-id="${e.id}">Licenzia</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : '<p class="muto">Nessun equipaggio in questa base.</p>'}
+      ${settimanaEquipaggi(b, eqB, r, scop)}</div>`;
   }
-  s += `<p class="nota">Ogni turno di servizio (al massimo 13 ore) richiede un comandante, un primo ufficiale, un capo cabina e gli assistenti necessari (1 ogni 50 posti). Per coprire riposi, ferie e riserve servono circa 2,4 persone per ogni turno giornaliero. Gli equipaggi lavorano solo dalla propria base: il personale di una base non copre i voli di un’altra. Piloti: 12.000 € di selezione e 10 giorni; cabina: 1.500 € e 3 giorni; trasferimento: 3.000 € e 5 giorni.</p>
-  <div class="griglia g2 mt">
+  s += `<div class="griglia g2 mt">
     <div class="pannello"><h2>Politiche</h2><div class="form">
       <label>Livello stipendi<select data-az-change="stipendio">${opzioni([[0.9, '90% (risparmio, morale giù)'], [1, '100% (di mercato)'], [1.1, '110% (morale su)'], [1.2, '120% (morale alto)']], G.stipendio)}</select></label>
       <label>Servizio di bordo<select data-az-change="servizio">${opzioni(Object.entries(D.SERVIZIO).map(([k, x]) => [k, `${x.nome} · ${x.costo} €/pax`]), G.servizio)}</select></label></div>
       <div class="filtri mt"><button data-az="premio">Distribuisci un premio (${eur(SIM.totPersonale(G) * 1500)})</button></div></div>
-    <div class="pannello"><h2>Formazione e trasferimenti in corso</h2>${G.formazione.length ? `<table><tbody>${G.formazione.map(x => `<tr><td>${x.base}</td><td>${x.n} ${D.RUOLI[x.ruolo].nome.toLowerCase()}${x.tipo ? ' ' + x.tipo : ''}</td><td>${x.riq ? 'riqualifica' : x.trasf ? 'trasferimento' : 'nuove assunzioni'}</td><td class="num">pronti ${fmtGiorno(x.fine)}</td></tr>`).join('')}</tbody></table>` : '<p class="muto">Nessuna</p>'}</div>
+    <div class="pannello"><h2>Come funziona</h2><p class="piccolo" style="margin:0">Ogni settimana i turni vengono assegnati agli equipaggi della stessa base e con la stessa abilitazione. Un turno di lungo raggio, o un turno oltre le 13 ore, vuole 3 piloti. Puoi scegliere tu l’equipaggio di un turno dalla Programmazione. I voli di un turno senza equipaggio vengono cancellati. Assunzione normale: 10 giorni; urgente tramite agenzia: 2 giorni, costa 2,5 volte. Licenziare costa 60 giorni di paga e abbassa il morale.</p></div>
   </div>`;
   return s;
 };
-function formRiqualifica(b, r, t) {
-  const tipi = [...new Set(Object.values(MOD).map(m => m.tipo))].filter(x => x !== t);
-  modale({
-    titolo: `Riqualifica ${D.RUOLI[r].nome.toLowerCase()} ${t} di ${b}`,
-    corpo: `<div class="form"><label>Nuova abilitazione<select id="rqTipo">${opzioni(tipi.map(x => [x, x]), tipi[0])}</select></label><label>Quanti<input type="number" id="rqN" min="1" value="1"></label></div>
-      <p class="nota">35.000 € a persona, 30 giorni di corso durante i quali non volano. Disponibili: ${SIM.squadra(G, b)[r][t] || 0}.</p>`,
-    piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-riq" data-b="${b}" data-r="${r}" data-t="${t}">Avvia corso</button>`
-  });
+// Settimana degli equipaggi di una base: una riga per equipaggio, una colonna per giorno
+function settimanaEquipaggi(b, eqB, r, scop) {
+  const giorno = c => Math.floor((c.inizio % (7 * 1440)) / 1440), ora = c => SIM.oraDaMin((c.inizio + 60) % 1440);
+  const cella = c => `<span class="turno-chip" data-tip="${h(`${c.marche} · ${c.percorso.join(' → ')} · ${c.voli} voli · ${num(c.blocco / 60, 1)} h di volo`)}"><b>${ora(c)}</b> ${c.marche.slice(-3)} ${c.percorso.join('-')}</span>`;
+  const righe = eqB.filter(e => e.stato === 'attivo').map(e => [e.nome, (r.carico.get(e.id)?.catene || [])]);
+  if (scop.length) righe.push(['Scoperti', scop]);
+  if (!righe.some(([, l]) => l.length)) return '';
+  return `<h3 class="mt" style="font-size:15px">Turni della settimana</h3><div class="tab-wrap"><table class="roster"><thead><tr><th></th>${GS3.map(g => `<th>${g}</th>`).join('')}</tr></thead><tbody>
+    ${righe.map(([n, l]) => `<tr class="${n === 'Scoperti' ? 'scoperto' : ''}"><td class="mono"><b>${h(n)}</b></td>${GS3.map((_, d) => `<td>${l.filter(c => giorno(c) === d).map(cella).join('') || '<span class="muto">riposo</span>'}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div>`;
 }
-function formTrasferisci(b, r, t) {
-  const P = SIM.squadra(G, b), ha = t ? (P[r][t] || 0) : P[r];
-  modale({
-    titolo: `Trasferisci ${D.RUOLI[r].nome.toLowerCase()}${t ? ' ' + t : ''} da ${b}`,
-    corpo: `<div class="form"><label>Verso la base<select id="trBase">${opzioni(G.basi.filter(x => x !== b).map(x => [x, `${x} · ${citta(x)}`]), '')}</select></label><label>Quanti (disponibili ${ha})<input type="number" id="trN" min="1" max="${ha}" value="1"></label></div>
-      <p class="nota">3.000 € a persona, operativi nella nuova base dopo 5 giorni.</p>`,
-    piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-trasf" data-b="${b}" data-r="${r}" data-t="${t}">Trasferisci</button>`
-  });
+function formNuovoEquipaggio(pre = {}) {
+  const tipiFlotta = [...new Set(flotta().map(a => MOD[a.modello].tipo))], tipo = pre.tipo || tipiFlotta[0] || 'A320';
+  modale({ titolo: 'Nuovo equipaggio', corpo: `<div class="form">
+      <label>Base<select id="neBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), pre.base || G.basi[0])}</select></label>
+      <label>Abilitazione<select id="neTipo">${opzioni(TIPI().map(t => [t, t + (tipiFlotta.includes(t) ? ' · in flotta' : '')]), tipo)}</select></label>
+      <label>Piloti<select id="nePiloti">${opzioni([[2, '2 (comandante e primo ufficiale)'], [3, '3 (lungo raggio e turni oltre 13 ore)']], pre.piloti || 2)}</select></label>
+      <label>Persone in cabina<input type="number" id="neCabina" min="1" max="16" value="${pre.cabina || 4}"><span class="aiuto">1 ogni 50 posti dell’aereo più grande che dovrà servire</span></label>
+    </div><p class="piccolo mt" id="neCosto"></p>`,
+    piede: `<button data-az="chiudi">Annulla</button><button data-az="conferma-ne" data-urg="1">Urgente · 2 giorni</button><button class="primario" data-az="conferma-ne">Assumi · 10 giorni</button>` });
+  costoNuovo();
 }
+function costoNuovo() { const e = { piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value || 1 }; const p = $('#neCosto'); if (p) p.innerHTML = `Costo: <b>${eur(SIM.costoAssunzione(e, false))}</b> (operativo in 10 giorni) oppure <b>${eur(SIM.costoAssunzione(e, true))}</b> urgente (2 giorni). Paga: ${eur(SIM.pagaEquipaggio(e) * G.stipendio)} al giorno.`; }
 
 /* Aeroporti */
 VISTE.aeroporti = () => {
@@ -1075,7 +1110,15 @@ function allinea(i) {
   const n = bozza.giorni.length, succ = bozza.giorni[(i + 1) % n];
   if (n > 1 && succ !== bozza.giorni[i] && succ.scali.length === 1) succ.scali[0] = bozza.giorni[i].scali.at(-1);
 }
-const copiaGiorno = g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice() });
+const copiaGiorno = g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice(), cambi: (g.cambi || []).slice() });
+// Aggiunge uno scalo al giorno scelto; se la rotta non è aperta la apre (30.000 €) dopo conferma
+function aggiungiScalo(d) {
+  if (!d) return;
+  const g = bozza.giorni[bozza.sel], da = g.scali.at(-1), k = SIM.chiave(da, d);
+  const metti = () => { g.scali.push(d); allinea(bozza.sel); aggiornaEditor(); };
+  if (G.rotte[k]) return metti();
+  conferma(`Aprire la rotta ${da}–${d}?`, `${h(citta(da))}–${h(citta(d))}, ${num(SIM.km(da, d))} km. La campagna di lancio costa 30.000 €; i prezzi partono da quelli di riferimento e li cambi in Rotte e prezzi. La domanda cresce nei primi 2 mesi.`, 'Apri e aggiungi il volo', () => { if (esito(SIM.A.apriRotta(G, da, d))) { metti(); Mappa.disegnaRete(); } });
+}
 
 /* ---------- Azioni ---------- */
 const AZ = {
@@ -1126,8 +1169,8 @@ const AZ = {
     const g = bozza.giorni[da], aperto = g.scali[0] !== g.scali.at(-1);
     toast(aperto && dove.length > 1 ? `${GS[da]} parte da ${g.scali[0]} e finisce a ${g.scali.at(-1)}: copiato su più giorni di fila la settimana non torna, sistema i giorni successivi` : `${GS[da]} copiato su ${dove.map(i => GS3[i].toLowerCase()).join(', ')}`, aperto && dove.length > 1 ? 'evento' : 'buona'); aggiornaEditor();
   },
-  'p-aggiungi': () => { const d = $('#pDest').value; if (d) { bozza.giorni[bozza.sel].scali.push(d); allinea(bozza.sel); aggiornaEditor(); } },
-  'p-rientra': el => { bozza.giorni[bozza.sel].scali.push(el.dataset.b); allinea(bozza.sel); aggiornaEditor(); },
+  'p-aggiungi': () => aggiungiScalo($('#pDest').value),
+  'p-rientra': el => aggiungiScalo(el.dataset.b),
   'p-togli': () => { const g = bozza.giorni[bozza.sel]; if (g.scali.length > 1) g.scali.pop(); g.attese = (g.attese || []).slice(0, g.scali.length - 1); allinea(bozza.sel); aggiornaEditor(); },
   'p-svuota': () => { const g = bozza.giorni[bozza.sel]; g.scali = g.scali.slice(0, 1); g.attese = []; allinea(bozza.sel); aggiornaEditor(); },
   'p-ripeti': () => {
@@ -1139,7 +1182,7 @@ const AZ = {
   'p-salva': () => {
     const r = SIM.salvaProgramma(G, bozza.aeId, { turn: bozza.turn, giorni: bozza.giorni.map(copiaGiorno) });
     if (r.E.length) return toast(r.E[0], 'err');
-    toast(`Programma salvato: ${r.voliSett} voli a settimana in vendita`, 'buona'); suono('click'); bozza = null; dopoAzione();
+    toast(`Programma salvato: ${r.voliSett} voli a settimana in vendita${SIM.copertura(G).scoperte ? ' · alcuni turni non hanno ancora un equipaggio' : ''}`, 'buona'); suono('click'); bozza = null; dopoAzione();
   },
   'apri-rotta': () => formApriRotta(),
   'conferma-rotta': () => { const a = $('#rDa').value, b = $('#rA').value; if (!b) return toast('Scegli la destinazione', 'err'); if (esito(SIM.A.apriRotta(G, a, b))) { chiudiModale(); dopoAzione(); } },
@@ -1147,12 +1190,17 @@ const AZ = {
   analisi: el => analisiPrezzi(el.dataset.k),
   'analisi-cl': el => { UI.classeAnalisi = el.dataset.c; analisiPrezzi(el.dataset.k, el.dataset.c); },
   'applica-prezzo': el => { esito(SIM.A.prezzi(G, el.dataset.k, { ['p' + el.dataset.c]: +el.dataset.p })); chiudiModale(); render(); },
-  assumi: el => { esito(SIM.A.assumi(G, el.dataset.b, el.dataset.r, el.dataset.t || null, +el.dataset.n)); render(); },
-  licenzia: el => { esito(SIM.A.licenzia(G, el.dataset.b, el.dataset.r, el.dataset.t || null, 1)); render(); },
-  riqualifica: el => formRiqualifica(el.dataset.b, el.dataset.r, el.dataset.t),
-  'conferma-riq': el => { esito(SIM.A.riqualifica(G, el.dataset.b, el.dataset.r, el.dataset.t, $('#rqTipo').value, +$('#rqN').value)); chiudiModale(); render(); },
-  'trasferisci-pers': el => formTrasferisci(el.dataset.b, el.dataset.r, el.dataset.t || null),
-  'conferma-trasf': el => { esito(SIM.A.trasferisciPersonale(G, el.dataset.b, $('#trBase').value, el.dataset.r, el.dataset.t || null, +$('#trN').value)); chiudiModale(); render(); },
+  'assumi-eq': el => { if (esito(SIM.A.assumiEquipaggio(G, { base: el.dataset.b, tipo: el.dataset.t, piloti: +el.dataset.p, cabina: +el.dataset.c, urgente: !!el.dataset.urg }))) render(); },
+  'assumi-mancanti': el => { const urg = !!el.dataset.urg, st = SIM.A.stimaMancanti(G, urg); conferma(`Assumere ${st.n} equipaggi?`, `Costo ${eur(st.costo)}. Saranno operativi tra ${urg ? '2 giorni (agenzia, costo ×2,5)' : '10 giorni'}; fino ad allora i turni scoperti restano senza equipaggio.`, 'Assumi', () => { esito(SIM.A.assumiMancanti(G, urg)); render(); }); },
+  'nuovo-equipaggio': () => formNuovoEquipaggio(),
+  'conferma-ne': el => { if (esito(SIM.A.assumiEquipaggio(G, { base: $('#neBase').value, tipo: $('#neTipo').value, piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value, urgente: !!el.dataset.urg }))) { chiudiModale(); render(); } },
+  'eq-licenzia': el => { const e = G.equipaggi.find(x => x.id === el.dataset.id); conferma(`Licenziare l’equipaggio ${e.nome}?`, `Buonuscita di ${eur(SIM.pagaEquipaggio(e) * 60)} e morale in calo. I suoi turni passeranno ad altri equipaggi, se ce ne sono di liberi.`, 'Licenzia', () => { esito(SIM.A.licenziaEquipaggio(G, e.id)); render(); }); },
+  'eq-trasferisci': el => { const e = G.equipaggi.find(x => x.id === el.dataset.id); modale({ titolo: `Trasferire ${e.nome}`, corpo: `<div class="form"><label>Nuova base<select id="trBase">${opzioni(G.basi.filter(b => b !== e.base).map(b => [b, `${b} · ${citta(b)}`]), '')}</select></label></div><p class="nota">${eur(3000 * SIM.persone(e))}, operativo nella nuova base dopo 5 giorni.</p>`, piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-trasf-eq" data-id="${e.id}">Trasferisci</button>` }); },
+  'conferma-trasf-eq': el => { if (esito(SIM.A.trasferisciEquipaggio(G, el.dataset.id, $('#trBase').value))) { chiudiModale(); render(); } },
+  'eq-riqualifica': el => { const e = G.equipaggi.find(x => x.id === el.dataset.id); modale({ titolo: `Riqualificare ${e.nome}`, corpo: `<div class="form"><label>Nuova abilitazione<select id="rqTipo">${opzioni(TIPI().filter(t => t !== e.tipo).map(t => [t, t]), '')}</select></label></div><p class="nota">${eur(35000 * e.piloti)}, 30 giorni di corso durante i quali l’equipaggio non vola.</p>`, piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-riq-eq" data-id="${e.id}">Avvia corso</button>` }); },
+  'conferma-riq-eq': el => { if (esito(SIM.A.riqualificaEquipaggio(G, el.dataset.id, $('#rqTipo').value))) { chiudiModale(); render(); } },
+  'p-cambio': el => { const g = bozza.giorni[bozza.sel], i = +el.dataset.i; g.cambi = Array.from({ length: g.scali.length - 1 }, (_, q) => !!g.cambi?.[q]); g.cambi[i] = !g.cambi[i]; aggiornaEditor(); },
+  'p-sistema': () => { const ae = G.aerei.find(a => a.id === bozza.aeId), p = SIM.sistemaTurni(G, ae, { turn: bozza.turn, giorni: bozza.giorni }); bozza.giorni = p.giorni; toast('Cambi equipaggio inseriti dove servivano', 'buona'); aggiornaEditor(); },
   premio: () => { esito(SIM.A.premio(G)); render(); },
   'nuova-campagna': el => { if (!Object.keys(G.rotte).length) return toast('Apri prima almeno una rotta', 'err'); formCampagna(el.dataset.c); },
   'conferma-campagna': () => { if (esito(SIM.A.avviaCampagna(G, leggiCampagna()))) { chiudiModale(); render(); } },
@@ -1195,6 +1243,8 @@ document.addEventListener('change', ev => {
   if (el.dataset.azChange === 'servizio') { G.servizio = el.value; toast('Servizio di bordo aggiornato'); return; }
   if (el.id === 'cmAmbito') { aggiornaObiettivi(); stimaCampagna(); return; }
   if (el.id === 'cmOb' || el.id === 'cmGiorni' || el.id === 'cmBudget') { stimaCampagna(); return; }
+  if (el.classList.contains('sel-eq')) { esito(SIM.A.fissaEquipaggio(G, el.dataset.turno, el.value || null)); aggiornaEditor(); const bp = $('#bannerProg'); if (bp) bp.innerHTML = bannerMancanti(); return; }
+  if (el.id === 'nePiloti') { costoNuovo(); return; }
   if (el.classList.contains('ora-volo')) {
     const g = bozza.giorni[bozza.sel], k = +el.dataset.leg, ae = G.aerei.find(a => a.id === bozza.aeId);
     const att = (g.attese || []).slice(); att[k] = 0;
@@ -1219,6 +1269,7 @@ document.addEventListener('change', ev => {
 document.addEventListener('input', ev => {
   if (ev.target.id === 'aeroQ') { UI.aeroQ = ev.target.value; const pos = ev.target.selectionStart; render(); const i = $('#aeroQ'); i.focus(); i.setSelectionRange(pos, pos); }
   if (/^cab[JWY]$/.test(ev.target.id)) aggiornaConfig();
+  if (ev.target.id === 'neCabina') costoNuovo();
   if (ev.target.id === 'cmBudget') stimaCampagna();
 });
 document.addEventListener('keydown', ev => {
