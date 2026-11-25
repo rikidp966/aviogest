@@ -5,14 +5,22 @@ const SIM = (() => {
   const D = typeof DATI !== 'undefined' ? DATI : require('./data.js');
   const AP = D.AEROPORTI, MOD = D.MODELLI, CLS = D.CLASSI;
   const CL = ['J', 'W', 'Y'];
-  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 2;
+  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 3;
   const FDP = 13 * 60, PERSONE_PER_TURNO = 2.4;
   const rnd = Math.random;
   const pad = n => String(n).padStart(2, '0');
-  const dataDi = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const mezzanotte = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
-  const tsDi = (giorno, minuti) => { const d = new Date(giorno); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, minuti).getTime(); };
-  const giornoDopo = (giorno, n = 1) => { const d = new Date(giorno); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n).getTime(); };
+  // Orologio di gioco: ora della base principale (fuso G.fuso, senza ora legale). Gli orari locali degli aeroporti usano il loro fuso.
+  let FUSO = 1;
+  const impostaFuso = G => { FUSO = G.fuso ?? AP[G.basi?.[0]]?.fuso ?? 1; };
+  const loc = (t, f = FUSO) => new Date(t + f * ORA); // leggere con i getter UTC
+  const dataDi = t => { const d = loc(t); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; };
+  const mezzanotte = t => Math.floor((t + FUSO * ORA) / GIORNO) * GIORNO - FUSO * ORA;
+  const tsDi = (giorno, minuti) => giorno + minuti * MIN;
+  const giornoDopo = (giorno, n = 1) => giorno + n * GIORNO;
+  const oraIn = (t, f = FUSO) => { const d = loc(t, f); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+  // minuto del giorno, nell'ora locale di un aeroporto, di un orario espresso in minuti dell'ora della base
+  const oraLocaleMin = (minBase, iata) => (((minBase + (AP[iata].fuso - FUSO) * 60) % 1440) + 1440) % 1440;
+  const oraLocaleT = (t, iata) => oraIn(t, AP[iata].fuso);
   const giorniTra = (a, b) => Math.round((mezzanotte(b) - mezzanotte(a)) / GIORNO);
   const chiave = (a, b) => a < b ? a + '-' + b : b + '-' + a;
   const chiaveCitta = (a, b) => { const x = AP[a].citta, y = AP[b].citta; return x < y ? x + '|' + y : y + '|' + x; };
@@ -31,11 +39,15 @@ const SIM = (() => {
     return distCache[k] = Math.round(2 * R * Math.asin(Math.sqrt(s)));
   }
   const durata = (k, mod) => Math.round((20 + k / MOD[mod].vel * 60) / 5) * 5;
-  const prezzoRif = k => Math.round(25 + 0.085 * k);
+  const prezzoRif = k => Math.round(k <= 2000 ? 25 + 0.085 * k : 195 + 0.035 * (k - 2000));
+  const lungoRaggio = k => k > 4000;
+  // moltiplicatore della tariffa per classe: sul lungo raggio la Business (con letto) costa molto di più
+  const multClasse = (c, k = 0) => c === 'Y' ? 1 : lungoRaggio(k) ? (c === 'J' ? 3.4 : 1.6) : CLS[c].mult;
   const repF = r => 0.4 + r / 80;
   function altriMezzi(a, b, k) {
     if (AP[a].isola || AP[b].isola) return 0.15;
-    if (k < 350) return 1.6; if (k < 700) return 0.9; if (k < 1200) return 0.35; return 0.15;
+    if (k < 350) return 1.6; if (k < 700) return 0.9; if (k < 1200) return 0.35; if (k < 3000) return 0.2;
+    return 1.2; // sul lungo raggio: le altre compagnie che non simuliamo una per una
   }
   function pesoOra(min) {
     const h = min / 60;
@@ -45,27 +57,31 @@ const SIM = (() => {
   /* ---------- Cabine ---------- */
   const posti = ae => somma(ae.cab);
   const cabMin = ae => Math.max(1, Math.ceil(posti(ae) / 50));
-  const spazioUsato = cab => (cab.J || 0) * CLS.J.spazio + (cab.W || 0) * CLS.W.spazio + (cab.Y || 0) * CLS.Y.spazio;
+  // spazio occupato da un posto: sui widebody la Business ha il letto e la Premium è più larga
+  const spazioPosto = (mod, c) => MOD[mod]?.lungo ? { J: 3.6, W: 1.5, Y: 1 }[c] : CLS[c].spazio;
+  const spazioUsato = (cab, mod) => CL.reduce((x, c) => x + (cab[c] || 0) * spazioPosto(mod, c), 0);
   function cabinaStandard(mod, stile = 'mista') {
     const s = MOD[mod].spazio, turbo = MOD[mod].tipo === 'ATR';
     if (stile === 'economy' || (turbo && stile === 'mista')) return { J: 0, W: 0, Y: s };
-    if (stile === 'mista') { const J = s >= 170 ? 12 : 8; return { J, W: 0, Y: Math.floor(s - J * CLS.J.spazio + 1e-9) }; }
-    const J = turbo ? 0 : s >= 170 ? 16 : 12, W = turbo ? 12 : s >= 170 ? 24 : 18;
-    return { J, W, Y: Math.floor(s - J * CLS.J.spazio - W * CLS.W.spazio + 1e-9) };
+    const resto = (J, W) => ({ J, W, Y: Math.floor(s - J * spazioPosto(mod, 'J') - W * spazioPosto(mod, 'W') + 1e-9) });
+    if (MOD[mod].lungo) return stile === 'mista' ? resto(Math.round(s / 12.5), 0) : resto(Math.round(s / 13.5), Math.round(s / 16));
+    if (stile === 'mista') return resto(s >= 170 ? 12 : 8, 0);
+    return resto(turbo ? 0 : s >= 170 ? 16 : 12, turbo ? 12 : s >= 170 ? 24 : 18);
   }
   function validaCabina(mod, cab) {
     for (const c of CL) if (!Number.isInteger(cab[c]) || cab[c] < 0) return 'I posti devono essere numeri interi non negativi';
     if (somma(cab) < 1) return 'Serve almeno un posto';
-    if (spazioUsato(cab) > MOD[mod].spazio + 1e-6) return `Spazio insufficiente: ${spazioUsato(cab).toFixed(1)} su ${MOD[mod].spazio} unità`;
+    if (spazioUsato(cab, mod) > MOD[mod].spazio + 1e-6) return `Spazio insufficiente: ${spazioUsato(cab, mod).toFixed(1)} su ${MOD[mod].spazio} unità`;
     return null;
   }
   // Ripartizione della domanda tra le classi: più business tra grandi città, più premium verso mete turistiche ed estere
   function quoteClassi(da, a) {
     const A = AP[da], B = AP[a], tur = (A.tur + B.tur) / 2, grande = Math.min(1, Math.min(A.pop, B.pop) / 3000), estero = A.paese !== B.paese ? 1 : 0;
-    const J = 0.03 + 0.07 * grande * (1 - tur * 0.6) + 0.02 * estero, W = 0.07 + 0.05 * tur + 0.03 * estero;
+    const lr = lungoRaggio(km(da, a)) ? 1 : 0;
+    const J = 0.03 + 0.07 * grande * (1 - tur * 0.6) + 0.02 * estero + 0.03 * lr, W = 0.07 + 0.05 * tur + 0.03 * estero + 0.04 * lr;
     return { J, W, Y: 1 - J - W };
   }
-  const prezziRotta = (G, da, a) => { const r = G.rotte[chiave(da, a)]; if (r) return r; const ref = prezzoRif(km(da, a)); return { pY: ref, pW: Math.round(ref * CLS.W.mult), pJ: Math.round(ref * CLS.J.mult) }; };
+  const prezziRotta = (G, da, a) => { const r = G.rotte[chiave(da, a)]; if (r) return r; const k = km(da, a), ref = prezzoRif(k); return { pY: ref, pW: Math.round(ref * multClasse('W', k)), pJ: Math.round(ref * multClasse('J', k)) }; };
 
   /* ---------- Notizie, flotta ---------- */
   function nuovoGiorno() { return { voli: 0, canc: 0, pax: 0, posti: 0, puntuali: 0, ricavi: 0, paxC: zero(), ricaviC: zero(), transito: 0, ricaviTransito: 0, costi: { carburante: 0, tasse: 0, handling: 0, navigazione: 0, manutenzione: 0, servizio: 0, rimborsi: 0, equipaggi: 0, marketing: 0, leasing: 0, personale: 0, basi: 0, hub: 0, sede: 0, interessi: 0, assicurazione: 0, altro: 0 }, rotte: {}, aerei: {}, hub: {} }; }
@@ -95,7 +111,8 @@ const SIM = (() => {
   const squadraVuota = () => ({ CMD: {}, FO: {}, CC: 0, ADV: 0 });
   const squadra = (G, b) => (G.personale[b] ||= squadraVuota());
 
-  /* ---------- Rotazioni su più giorni ---------- */
+  /* ---------- Rotazioni su più giorni (i voli possono passare la mezzanotte) ---------- */
+  const LUNGO = 360, RIPOSO = 600, SOSTA = 360, FDP_LUNGO = 17 * 60;
   function legsGiorno(ae, g, turn) {
     const legs = []; let t = minDaOra(g.inizio);
     for (let i = 0; i < g.scali.length - 1; i++) {
@@ -104,23 +121,45 @@ const SIM = (() => {
     }
     return legs;
   }
-  // Divide le tratte di una giornata in turni di servizio (max 13 h dal briefing al de-briefing); il cambio equipaggio si fa solo in una base
-  function turniGiorno(G, legs) {
-    const turni = [], errori = [];
-    let cur = null;
-    for (const l of legs) {
-      if (!cur) cur = { base: l.da, inizio: l.dep - 60, legs: [] };
-      else if (l.arr + 30 - cur.inizio > FDP) {
-        if (G.basi.includes(l.da)) { cur.fine = cur.legs.at(-1).arr + 30; turni.push(cur); cur = { base: l.da, inizio: l.dep - 60, legs: [] }; }
-        else if (!errori.length) errori.push(`il turno iniziato a ${cur.base} supera le 13 ore prima di ${l.da}–${l.a}: serve uno scalo in una base per il cambio equipaggio`);
+  // Turni di servizio su tutto il ciclo. Massimo 13 h (17 h con un pilota in più se c'è un volo di lungo raggio).
+  // Un nuovo equipaggio entra in una base; fuori base solo dopo un volo di lungo raggio o un riposo lungo (equipaggio in albergo).
+  function pianoCiclo(G, ae, prog = ae.prog) {
+    const memo = JSON.stringify(prog) + '|' + G.basi.join(',');
+    if (prog === ae.prog && ae._piano && ae._piano.k === memo) return ae._piano.p;
+    const n = prog.giorni.length, legs = [], E = [], turni = [], mappa = {};
+    prog.giorni.forEach((g, i) => legsGiorno(ae, g, prog.turn).forEach((l, k) => legs.push({ ...l, giorno: i, k, abs: i * 1440 + l.dep, absArr: i * 1440 + l.arr })));
+    const L = legs.length, ciclo = n * 1440;
+    const gap = j => j === 0 ? legs[0].abs + ciclo - legs[L - 1].absArr : legs[j].abs - legs[j - 1].absArr;
+    if (L) {
+      let start = 0; for (let j = 1; j < L; j++) if (gap(j) > gap(start)) start = j;
+      let cur = null;
+      const chiudi = () => { if (cur && cur.legs.length) { cur.termina = cur.legs.at(-1).a; cur.blocco = cur.legs.reduce((x, l) => x + l.dur, 0); turni.push(cur); } cur = null; };
+      for (let q = 0; q < L; q++) {
+        const j = (start + q) % L, l = legs[j], off = j < start ? ciclo : 0, dep = l.abs + off, arr = l.absArr + off, g = gap(j), lungo = l.dur >= LUNGO;
+        if (cur) {
+          const prec = legs[(j - 1 + L) % L], fdp = (cur.lungo || lungo) ? FDP_LUNGO : FDP;
+          if (g >= RIPOSO || arr + 30 - cur.inizio > fdp) {
+            if (G.basi.includes(l.da)) chiudi();
+            else if (g >= RIPOSO || prec.dur >= LUNGO) { const b = cur.base; chiudi(); cur = { base: b, albergo: true, inizio: dep - 60, legs: [], lungo: false }; }
+            else E.push(`il turno partito da ${cur.legs[0].da} supera le ${fdp / 60} ore prima di ${l.da}–${l.a}: serve uno scalo in una base per cambiare equipaggio`);
+          }
+        }
+        if (!cur) {
+          cur = { base: G.basi.includes(l.da) ? l.da : null, inizio: dep - 60, legs: [], lungo: false };
+          if (!cur.base) E.push(`un turno parte da ${l.da}, dove non hai equipaggi: deve iniziare in una base`);
+        }
+        cur.legs.push(l); cur.lungo ||= lungo; cur.fine = arr + 30;
+        mappa[`${l.giorno}-${l.k}`] = cur;
       }
-      cur.legs.push(l);
+      chiudi();
+      for (let j = 0; j < L; j++) { const g = gap(j); if (g >= SOSTA && !G.basi.includes(legs[j].da)) E.push(`l’aereo resta fermo ${Math.floor(g / 60)} ore a ${legs[j].da}, che non è una base: notti e soste lunghe si fanno solo nelle basi`); }
     }
-    if (cur) { cur.fine = cur.legs.at(-1).arr + 30; turni.push(cur); }
-    for (const t of turni) { t.termina = t.legs.at(-1).a; t.blocco = t.legs.reduce((s, l) => s + l.dur, 0); if (!G.basi.includes(t.base)) errori.push(`il turno parte da ${t.base}, dove non hai equipaggi (non è una base)`); }
-    return { turni, errori };
+    let sostaMax = 0; for (let j = 0; j < L; j++) sostaMax = Math.max(sostaMax, gap(j));
+    const p = { legs, turni, mappa, E: [...new Set(E)], sostaMax: L ? sostaMax : 1440 };
+    if (prog === ae.prog) ae._piano = { k: memo, p };
+    return p;
   }
-  const indiceCiclo = (prog, giorno) => { const n = prog.giorni.length; return ((giorniTra(prog.ancora, giorno) % n) + n) % n; };
+  const indiceCiclo = (prog, giorno) => { const n = prog.giorni.length; return ((Math.round((giorno - prog.ancora) / GIORNO) % n) + n) % n; };
   const giornoDelCiclo = (ae, giorno) => ae.prog.giorni[indiceCiclo(ae.prog, giorno)];
   const tratteDi = (ae, giorno) => legsGiorno(ae, giornoDelCiclo(ae, giorno), ae.prog.turn);
   // Media giornaliera sul ciclo (per fabbisogni e statistiche)
@@ -128,7 +167,7 @@ const SIM = (() => {
     const n = prog.giorni.length, out = { ore: 0, tratte: [] };
     prog.giorni.forEach(g => {
       const legs = legsGiorno(ae, g, prog.turn);
-      out.ore += legs.reduce((s, l) => s + l.dur, 0) / 60 / n;
+      out.ore += legs.reduce((x, l) => x + l.dur, 0) / 60 / n;
       legs.forEach(l => out.tratte.push({ ...l, peso: 1 / n }));
     });
     return out;
@@ -142,44 +181,46 @@ const SIM = (() => {
     }
     return out;
   }
+  const fineTxt = m => oraDaMin(m) + (m >= 1440 ? ' del giorno dopo' : '');
   function validaProgramma(G, ae, prog) {
-    const E = [], W = [], m = MOD[ae.modello], n = prog.giorni.length, giorni = [];
+    const E = [], W = [], m = MOD[ae.modello], n = prog.giorni.length;
     if (n < 1 || n > 7) E.push('Il ciclo deve durare da 1 a 7 giorni');
-    let notteMin = 1e9;
+    if (m.lungo && prog.turn < 75) E.push('Un aereo di lungo raggio ha bisogno di almeno 75 minuti di turnaround');
+    else if (prog.turn < 35) W.push('Turnaround sotto i 35 minuti: i ritardi saranno più frequenti e si propagheranno');
     prog.giorni.forEach((g, i) => {
-      const legs = legsGiorno(ae, g, prog.turn), fineprec = prog.giorni[(i - 1 + n) % n].scali.at(-1);
+      const legs = legsGiorno(ae, g, prog.turn), prec = prog.giorni[(i - 1 + n) % n];
       const tag = n > 1 ? `Giorno ${i + 1}: ` : '';
-      if (g.scali[0] !== fineprec) E.push(`${tag}deve partire da ${fineprec}, dove l’aereo ha passato la notte`);
-      if (!G.basi.includes(g.scali.at(-1))) E.push(`${tag}a fine giornata l’aereo resta a ${g.scali.at(-1)}, che non è una tua base: può pernottare solo in una base`);
-      else if (!G.basi.includes(g.scali[0])) E.push(`${tag}l’aereo pernotta a ${g.scali[0]}, che non è una tua base`);
+      if (g.scali[0] !== prec.scali.at(-1)) E.push(`${tag}deve partire da ${prec.scali.at(-1)}, dove si trova l’aereo`);
       for (const l of legs) {
         if (!G.rotte[chiave(l.da, l.a)]) E.push(`${tag}la rotta ${l.da}–${l.a} non è aperta`);
         if (km(l.da, l.a) > m.autonomia) E.push(`${tag}${l.da}–${l.a} supera l’autonomia (${m.autonomia} km)`);
+        const ol = oraLocaleMin(l.dep, l.da);
+        if (ol >= 30 && ol < 330) E.push(`${tag}${l.da}–${l.a} decollerebbe alle ${oraDaMin(ol)} ora locale di ${l.da}: tra le 00:30 e le 05:30 non si decolla`);
       }
       if (legs.length) {
-        if (legs[0].dep < 330) E.push(`${tag}nessuna partenza prima delle 05:30`);
-        if (legs.at(-1).arr > 1440) E.push(`${tag}l’ultimo volo atterra alle ${oraDaMin(legs.at(-1).arr)}, oltre mezzanotte`);
-        const ls = legsGiorno(ae, prog.giorni[(i + 1) % n], prog.turn);
-        if (ls.length) notteMin = Math.min(notteMin, 1440 - legs.at(-1).arr + ls[0].dep);
+        if (legs.at(-1).arr > 2160) E.push(`${tag}la giornata finisce troppo tardi (${fineTxt(legs.at(-1).arr)})`);
+        const succ = prog.giorni[(i + 1) % n], ls = legsGiorno(ae, succ, prog.turn);
+        if (ls.length && 1440 + ls[0].dep < legs.at(-1).arr + prog.turn)
+          E.push(`${tag}l’ultimo volo arriva alle ${fineTxt(legs.at(-1).arr)}: il giorno ${(i + 1) % n + 1} non può iniziare alle ${succ.inizio}`);
       }
-      const t = turniGiorno(G, legs);
-      t.errori.forEach(e => E.push(tag + e));
-      giorni.push({ legs, turni: t.turni });
     });
-    if (prog.turn < 35) W.push('Turnaround sotto i 35 minuti: i ritardi saranno più frequenti e si propagheranno');
-    if (notteMin < 8 * 60) W.push(`Pausa notturna minima di ${Math.floor(notteMin / 60)} h: le ispezioni (8 h) cancelleranno qualche volo`);
-    const fuori = giorni.flatMap(g => g.turni).filter(t => t.termina !== t.base);
-    if (fuori.length) W.push(`${fuori.length} turni finiscono lontano dalla base dell’equipaggio: rientro in posizionamento (circa 150 € a persona)`);
+    const piano = pianoCiclo(G, ae, prog);
+    piano.E.forEach(e => E.push(e));
+    if (!piano.legs.length && !G.basi.includes(prog.giorni[0].scali[0])) E.push(`L’aereo è fermo a ${prog.giorni[0].scali[0]}, che non è una base`);
+    if (piano.legs.length && piano.sostaMax < 8 * 60) W.push(`La sosta più lunga è di ${Math.floor(piano.sostaMax / 60)} ore: le ispezioni (8 h) cancelleranno qualche volo`);
+    const fuori = piano.turni.filter(t => t.termina !== t.base);
+    if (fuori.length) W.push(`${fuori.length} turni finiscono lontano dalla base dell’equipaggio: rientro o albergo a pagamento (circa 150 € a persona)`);
     const dep = partenzePerScalo(G, { id: ae.id, prog });
     for (const [i, c] of Object.entries(dep)) if (AP[i].slot && c > (G.slot[i] || 0)) E.push(`${i} è un aeroporto a slot: servono ${c} slot giornalieri, ne hai ${G.slot[i] || 0}`);
-    return { E: [...new Set(E)], W, giorni };
+    const giorni = prog.giorni.map((g, i) => ({ legs: legsGiorno(ae, g, prog.turn), turni: piano.turni.filter(t => t.legs[0].giorno === i) }));
+    return { E: [...new Set(E)], W, giorni, piano };
   }
   function salvaProgramma(G, aeId, prog) {
     const ae = G.aerei.find(a => a.id === aeId), v = validaProgramma(G, ae, prog);
     if (v.E.length) return v;
     // "Giorno 1" del ciclo coincide con oggi
     ae.prog = { turn: prog.turn, ancora: mezzanotte(G.ora), giorni: prog.giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice() })) };
-    ae.base = prog.giorni[0].scali[0];
+    ae.base = prog.giorni[0].scali[0]; delete ae._piano;
     rigeneraAereo(G, ae); G._fab = null;
     return v;
   }
@@ -193,19 +234,21 @@ const SIM = (() => {
   }
   function generaVoliAereo(G, ae, giorno, vecchi) {
     if (ae.stato === 'venduto') return;
-    const { turni } = turniGiorno(G, tratteDi(ae, giorno));
-    turni.forEach((t, ti) => t.legs.forEach((l, k) => {
+    const i = indiceCiclo(ae.prog, giorno), piano = pianoCiclo(G, ae);
+    legsGiorno(ae, ae.prog.giorni[i], ae.prog.turn).forEach((l, k) => {
       const dep = tsDi(giorno, l.dep); if (dep <= G.ora) return;
-      const v = { id: G.seq++, ae: ae.id, num: numeroVolo(G, l.da, l.a, l.dep), da: l.da, a: l.a, dep, arr: tsDi(giorno, l.arr), v: zero(), t: zero(), inc: zero(), incT: 0, att: zero(), conn: {}, stato: 'prog', rit: 0, base: t.base, fineTurno: k === t.legs.length - 1 && t.termina !== t.base };
+      const t = piano.mappa[`${i}-${k}`] || { base: null, legs: [] }, ultimo = t.legs.at(-1), fine = ultimo && ultimo.giorno === i && ultimo.k === k;
+      const v = { id: G.seq++, ae: ae.id, num: numeroVolo(G, l.da, l.a, l.dep % 1440), da: l.da, a: l.a, dep, arr: tsDi(giorno, l.arr), v: zero(), t: zero(), inc: zero(), incT: 0, att: zero(), conn: {}, stato: 'prog', rit: 0, base: t.base, fineTurno: !!fine && t.termina !== t.base };
       const old = vecchi && vecchi.get(`${l.da}${l.a}${dep}`);
       if (old) Object.assign(v, { v: old.v, t: old.t, inc: old.inc, incT: old.incT, conn: old.conn });
       G.voli.push(v);
-    }));
+    });
   }
   function rigeneraAereo(G, ae) {
     const vecchi = new Map();
     G.voli = G.voli.filter(v => { if (v.ae === ae.id && v.stato === 'prog' && v.dep > G.ora) { vecchi.set(`${v.da}${v.a}${v.dep}`, v); return false; } return true; });
-    for (let g = mezzanotte(G.ora); g <= G.genFino; g = giornoDopo(g)) generaVoliAereo(G, ae, g, vecchi);
+    // anche ieri: i voli di ieri sera possono partire dopo mezzanotte
+    for (let g = giornoDopo(mezzanotte(G.ora), -1); g <= G.genFino; g = giornoDopo(g)) generaVoliAereo(G, ae, g, vecchi);
     G.voli.sort((a, b) => a.dep - b.dep);
     vendite(G);
   }
@@ -216,10 +259,12 @@ const SIM = (() => {
     const f = {};
     for (const ae of flottaAttiva(G)) {
       if (ae.stato === 'consegna') continue;
-      const n = ae.prog.giorni.length, tipo = MOD[ae.modello].tipo, cm = cabMin(ae), w = 1 / n;
-      for (const g of ae.prog.giorni) for (const t of turniGiorno(G, legsGiorno(ae, g, ae.prog.turn)).turni) {
-        const b = (f[t.base] ||= { CMD: {}, FO: {}, CC: 0, ADV: 0, turni: 0 });
-        b.CMD[tipo] = (b.CMD[tipo] || 0) + w; b.FO[tipo] = (b.FO[tipo] || 0) + w; b.CC += w; b.ADV += w * (cm - 1); b.turni += w;
+      const n = ae.prog.giorni.length, tipo = MOD[ae.modello].tipo, cm = cabMin(ae);
+      for (const t of pianoCiclo(G, ae).turni) {
+        if (!t.base) continue;
+        // un turno di lungo raggio porta un pilota in più e richiede più giorni di riposo dopo
+        const w = (t.lungo ? 1.6 : 1) / n, b = (f[t.base] ||= { CMD: {}, FO: {}, CC: 0, ADV: 0, turni: 0 });
+        b.CMD[tipo] = (b.CMD[tipo] || 0) + w; b.FO[tipo] = (b.FO[tipo] || 0) + w * (t.lungo ? 2 : 1); b.CC += w; b.ADV += w * (cm - 1); b.turni += 1 / n;
       }
     }
     for (const b of Object.values(f)) {
@@ -249,12 +294,16 @@ const SIM = (() => {
 
   /* ---------- Domanda e vendite ---------- */
   function domandaBase(G, da, a, giorno) {
-    const A = AP[da], B = AP[a], d = new Date(giorno), mese = d.getMonth(), tur = (A.tur + B.tur) / 2;
+    const A = AP[da], B = AP[a], d = loc(giorno), tur = (A.tur + B.tur) / 2;
+    // stagioni invertite se la meta è nell'emisfero sud
+    const mese = (d.getUTCMonth() + (B.lat < 0 ? 6 : 0)) % 12;
     const stag = mese >= 5 && mese <= 8 ? 1 + 0.6 * tur : (mese === 11 || mese <= 1) ? 1 - 0.3 * tur : (mese === 3 || mese === 4 || mese === 9) ? 1 + 0.15 * tur : 1;
-    const dow = [1.12, 1.0, 0.92, 0.92, 1.0, 1.15, 0.88][d.getDay()];
+    const dow = [1.12, 1.0, 0.92, 0.92, 1.0, 1.15, 0.88][d.getUTCDay()];
+    // i viaggi lunghi sono meno frequenti; tra paesi diversi e lontani ancora meno
+    const k = km(da, a); let dist = k <= 1500 ? 1 : (1500 / k) ** 0.5; if (A.paese !== B.paese && k > 2500) dist *= 0.85;
     let ev = 1;
     for (const e of G.eventi) if (e.tipo === 'domanda' && (e.citta === A.citta || e.citta === B.citta) && e.inizio < giorno + GIORNO && e.fine > giorno) ev *= e.fattore;
-    return 0.25 * Math.sqrt(A.pop * B.pop) * stag * dow * ev;
+    return 0.25 * Math.sqrt(A.pop * B.pop) * stag * dow * ev * dist;
   }
   function rivaliSu(G, da, a) {
     const kc = chiaveCitta(da, a), out = [];
@@ -277,7 +326,7 @@ const SIM = (() => {
     const pax = mercato * quota * clamp((ref / pY) ** 0.8, 0.3, 1.8) * maturita * (1 + 0.3 * sp.tot);
     const quote = quoteClassi(da, a);
     if (sp.bus) { quote.J *= 1 + 1.5 * sp.bus; quote.W *= 1 + 1.5 * sp.bus; quote.Y = 1 - quote.J - quote.W; }
-    return { mercato, quota, pax, ref, rivali, altri: altri / tot, maturita, quote, spinta: sp };
+    return { mercato, quota, pax, ref, km: k, rivali, altri: altri / tot, maturita, quote, spinta: sp };
   }
   // Spinta pubblicitaria su una direzione: tot alza l'attrattività, bus alza la quota di Business e Premium
   function spinta(G, da, a, escludi, extra) {
@@ -298,9 +347,9 @@ const SIM = (() => {
     return { tot: Math.min(tot, 0.9), bus };
   }
   // Domanda per classe, data la domanda totale e i prezzi di ciascuna classe
-  function domandaClassi(pax, quote, prezzi, ref) {
+  function domandaClassi(pax, quote, prezzi, ref, k = 0) {
     const out = {};
-    for (const c of CL) out[c] = pax * quote[c] * (c === 'Y' ? 1 : clamp((ref * CLS[c].mult / prezzi['p' + c]) ** CLS[c].el, 0.2, 2.5));
+    for (const c of CL) out[c] = pax * quote[c] * (c === 'Y' ? 1 : clamp((ref * multClasse(c, k) / prezzi['p' + c]) ** CLS[c].el, 0.2, 2.5));
     return out;
   }
   // Bersaglio di posti venduti per classe; se una cabina manca o è piena, parte dei clienti scende di classe
@@ -327,8 +376,8 @@ const SIM = (() => {
       const pm = { pJ: 0, pW: 0, pY: 0 }; for (const p of prezzi) for (const c of CL) pm['p' + c] += p['p' + c] / lista.length;
       const am = analisiMercato(G, v0.da, v0.a, g, lista.length, pm.pY);
       if (g === oggi || g === giornoDopo(oggi)) for (const v of lista) { const r = G.rotte[chiave(v.da, v.a)]; if (r) { r.quota = am.quota; r.rivali = am.rivali.length; } }
-      const dom = domandaClassi(am.pax, am.quote, pm, am.ref);
-      const pesi = lista.map(v => pesoOra((v.dep - g) / MIN)), tot = pesi.reduce((s, x) => s + x, 0);
+      const dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km);
+      const pesi = lista.map(v => pesoOra(oraLocaleMin((v.dep - g) / MIN, v.da))), tot = pesi.reduce((s, x) => s + x, 0);
       lista.forEach((v, i) => {
         const ae = aeMap.get(v.ae), p = prezzi[i], w = pesi[i] / tot, d = {}, cab = {};
         for (const c of CL) { d[c] = dom[c] * w * (pm['p' + c] / p['p' + c]); cab[c] = ae.cab[c] - v.t[c]; }
@@ -353,7 +402,7 @@ const SIM = (() => {
           for (const x of coppie) { const p1 = prezziRotta(G, x.f1.da, x.f1.a), p2 = prezziRotta(G, x.f2.da, x.f2.a); for (const c of CL) tariffe['p' + c] += 0.8 * (p1['p' + c] + p2['p' + c]) / coppie.length; }
           const am = analisiMercato(G, O, Dd, g, coppie.length, tariffe.pY, 0.45);
           const mat = Math.min(maturitaRotta(G, O, H, g), maturitaRotta(G, H, Dd, g));
-          const dom = domandaClassi(am.pax / am.maturita * mat, am.quote, tariffe, am.ref);
+          const dom = domandaClassi(am.pax / am.maturita * mat, am.quote, tariffe, am.ref, am.km);
           const pesi = coppie.map(x => 1 / (1 + x.gap / 90)), tot = pesi.reduce((s, x) => s + x, 0);
           coppie.forEach((x, i) => {
             const { f1, f2 } = x, a1 = aeMap.get(f1.ae), a2 = aeMap.get(f2.ae);
@@ -385,9 +434,9 @@ const SIM = (() => {
     for (const lista of gruppi.values()) {
       const v0 = lista[0], prezzi = lista.map(v => prezziRotta(G, v.da, v.a));
       const pm = { pJ: 0, pW: 0, pY: 0 }; for (const p of prezzi) for (const c of CL) pm['p' + c] += p['p' + c] / lista.length;
-      const pesi = lista.map(v => pesoOra((v.dep - domani) / MIN)), tot = pesi.reduce((a, x) => a + x, 0);
+      const pesi = lista.map(v => pesoOra(oraLocaleMin((v.dep - domani) / MIN, v.da))), tot = pesi.reduce((a, x) => a + x, 0);
       const venduti = o => {
-        const am = analisiMercato(G, v0.da, v0.a, domani, lista.length, pm.pY, 1, o), dom = domandaClassi(am.pax, am.quote, pm, am.ref);
+        const am = analisiMercato(G, v0.da, v0.a, domani, lista.length, pm.pY, 1, o), dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km);
         return lista.map((v, i) => {
           const ae = aeMap.get(v.ae), p = prezzi[i], d = {}, cab = {};
           for (const c of CL) { d[c] = dom[c] * pesi[i] / tot * (pm['p' + c] / p['p' + c]); cab[c] = ae.cab[c] - v.t[c]; }
@@ -468,11 +517,11 @@ const SIM = (() => {
     const pax = venduti(v), np = posti(ae), h = (v.arrEff - v.depEff) / ORA;
     const c = {
       carburante: Math.round(m.consumo * h * G.carburante),
-      tasse: Math.round(pax * AP[v.da].tassa + np * 2),
+      tasse: Math.round(pax * AP[v.da].tassa + Math.max(np * 2, m.peso * 8)),
       handling: 250 + pax * 5,
-      navigazione: Math.round(k * 0.6 * m.peso / 70),
+      navigazione: Math.round(k * 0.6 * Math.sqrt(m.peso / 70)),
       manutenzione: Math.round(m.manut * h * (1 + ae.eta * 0.03)),
-      servizio: pax * D.SERVIZIO[G.servizio].costo + (v.v.J + v.t.J) * 12 + (v.v.W + v.t.W) * 4,
+      servizio: Math.round((pax * D.SERVIZIO[G.servizio].costo + (v.v.J + v.t.J) * 12 + (v.v.W + v.t.W) * 4) * Math.max(1, h / 2)),
       rimborsi: v.rit >= 180 ? Math.round(pax * (k < 1500 ? 250 : 400) * 0.5) : 0,
       equipaggi: v.fineTurno ? (2 + cabMin(ae)) * 150 : 0
     };
@@ -529,15 +578,17 @@ const SIM = (() => {
       }
     }
   }
+  // inizio della prossima sosta di almeno 8 ore dell'aereo (per ispezioni e lavori)
   function fineGiornataAereo(G, ae) {
-    const legs = tratteDi(ae, mezzanotte(G.ora));
-    return Math.max(legs.length ? tsDi(mezzanotte(G.ora), legs.at(-1).arr + 30) : G.ora, G.ora);
+    let t = G.ora; const inv = ae.inVolo && G.voli.find(v => v.id === ae.inVolo); if (inv) t = inv.arrEff;
+    for (const v of G.voli) { if (v.ae !== ae.id || v.stato !== 'prog' || v.dep < t) continue; if (v.dep - t >= 8.5 * ORA) break; t = v.arr; }
+    return t + 30 * MIN;
   }
   function pianificaCheck(G, aeId) {
     const ae = G.aerei.find(a => a.id === aeId); if (!ae || ae.lavori) return;
     const inizio = fineGiornataAereo(G, ae);
     ae.lavori = { tipo: 'check', inizio, fine: inizio + 8 * ORA, costo: Math.round(MOD[ae.modello].check * (1 + ae.eta * 0.02)) };
-    notizia(G, `${ae.marche}: ispezione programmata dalle ${oraDaMin((inizio - mezzanotte(inizio)) / MIN)} per 8 ore.`, 'info');
+    notizia(G, `${ae.marche}: ispezione programmata alle ${oraIn(inizio)} per 8 ore.`, 'info');
   }
 
   /* ---------- Cicli orari e giornalieri ---------- */
@@ -554,7 +605,7 @@ const SIM = (() => {
     aggiornaCampagne(G);
     vendite(G);
     G.eventi = G.eventi.filter(e => e.fine > G.ora);
-    const ora = new Date(G.ora).getHours();
+    const ora = loc(G.ora).getUTCHours();
     for (const f of G.formazione) if (!f.fatto && G.ora >= f.fine) {
       f.fatto = true; const P = squadra(G, f.base);
       if (f.ruolo === 'CC' || f.ruolo === 'ADV') P[f.ruolo] += f.n; else P[f.ruolo][f.tipo] = (P[f.ruolo][f.tipo] || 0) + f.n;
@@ -564,8 +615,10 @@ const SIM = (() => {
     if (ora === 18) for (const ae of G.aerei) if (ae.autoCheck && !ae.lavori && ae.stato === 'attivo' && ae.oreDaCheck > 500) pianificaCheck(G, ae.id);
     if (ora === 3) for (const ae of G.aerei) {
       if (ae.stato === 'venduto' || ae.stato === 'consegna' || ae.inVolo) continue;
-      const dove = giornoDelCiclo(ae, mezzanotte(G.ora)).scali[0];
-      if (ae.pos === dove) continue;
+      // se l'aereo non è dove parte il suo prossimo volo, lo si porta lì a vuoto
+      const nf = G.voli.find(v => v.ae === ae.id && v.stato === 'prog' && v.dep > G.ora);
+      if (!nf || nf.dep - G.ora > 20 * ORA || ae.pos === nf.da) continue;
+      const dove = nf.da;
       const k = km(ae.pos, dove), costo = Math.round(MOD[ae.modello].consumo * (k / MOD[ae.modello].vel + 0.3) * G.carburante + 2500);
       G.cassa -= costo; G.oggi.costi.altro += costo;
       notizia(G, `${ae.marche} era a ${ae.pos}: volo di trasferimento a vuoto verso ${dove} per il programma di oggi (${eur(costo)}).`, 'cattiva');
@@ -616,7 +669,7 @@ const SIM = (() => {
     G.morale = clamp(G.morale + (tm - G.morale) * 0.05, 0, 100);
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
-    if (new Date(G.ora).getDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
+    if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -630,7 +683,7 @@ const SIM = (() => {
 
   const NOMI_EVENTI = ['Salone internazionale', 'Concerto allo stadio', 'Finale di coppa', 'Congresso medico', 'Festival del cinema', 'Settimana della moda', 'Maratona cittadina', 'Fiera del turismo'];
   function eventiCasuali(G) {
-    const domani = giornoDopo(mezzanotte(G.ora)), mese = new Date(G.ora).getMonth();
+    const domani = giornoDopo(mezzanotte(G.ora)), mese = loc(G.ora).getUTCMonth();
     const serviti = [...new Set(G.aerei.flatMap(a => a.prog.giorni.flatMap(g => g.scali)))];
     const pick = a => a[Math.floor(rnd() * a.length)];
     const nord = serviti.filter(i => ['LIN', 'MXP', 'BGY', 'TRN', 'VCE', 'BLQ', 'VRN', 'TRS', 'GOA'].includes(i));
@@ -645,7 +698,7 @@ const SIM = (() => {
     if (rnd() < 0.012 && !G.eventi.some(e => e.tipo === 'sciopero-atc')) {
       const g = giornoDopo(domani, 2);
       G.eventi.push({ tipo: 'sciopero-atc', inizio: tsDi(g, 600), fine: tsDi(g, 1080) });
-      notizia(G, `Annunciato sciopero dei controllori di volo italiani per ${new Date(g).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}, dalle 10 alle 18.`, 'evento', true);
+      notizia(G, `Annunciato sciopero dei controllori di volo italiani per ${loc(g).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}, dalle 10 alle 18.`, 'evento', true);
     }
     if (G.morale < 30 && G.aerei.length && rnd() < 0.08) {
       G.eventi.push({ tipo: 'sciopero', inizio: domani, fine: giornoDopo(domani) });
@@ -682,12 +735,12 @@ const SIM = (() => {
     }
     for (const R of G.rivali) for (const rr of Object.values(R.rotte)) if (rr.guerraFino && G.ora > rr.guerraFino) { rr.prezzo = R.prezzo; delete rr.guerraFino; }
     if (rnd() < 0.25) {
-      const R = pick(G.rivali), dest = pick(Object.keys(AP).filter(i => i !== R.hub && km(R.hub, i) < 2000));
+      const R = pick(G.rivali), dest = pick(Object.keys(AP).filter(i => i !== R.hub && km(R.hub, i) < (R.raggio || 2000)));
       const k = chiave(R.hub, dest); if (!R.rotte[k]) { R.rotte[k] = { freq: 2, prezzo: R.prezzo }; notizia(G, `${R.nome} inaugura un collegamento ${R.hub}–${dest}.`, 'info'); }
     }
   }
   function aggiornaMercato(G) {
-    const pesi = ['ATR42', 'ATR72', 'ATR72', 'E195', 'A319', 'A319', 'A320', 'A320', 'A320', 'A321', 'A220'];
+    const pesi = ['ATR42', 'ATR72', 'ATR72', 'E195', 'A319', 'A319', 'A320', 'A320', 'A320', 'A321', 'A220', 'A21X', 'A339', 'B789', 'A359', 'B77W', 'B77W', 'A388'];
     G.mercato = Array.from({ length: 6 }, () => {
       const mod = pesi[Math.floor(rnd() * pesi.length)], eta = 3 + Math.floor(rnd() * 18);
       const prezzo = Math.round(MOD[mod].prezzo * Math.max(0.22, 1 - 0.045 * eta) * (0.9 + rnd() * 0.2) / 1e4) * 1e4;
@@ -719,6 +772,9 @@ const SIM = (() => {
     if (G.cassa >= 1e8) traguardo(G, 'cassa-100');
     if (G.reputazione >= 80) traguardo(G, 'reputazione-80');
     if (G.hub.length) traguardo(G, 'hub');
+    const att = [...rotteInEsercizio(G)];
+    if (att.some(k => { const [a, b] = k.split('-'); return km(a, b) > 5000; })) traguardo(G, 'intercontinentale');
+    if (continentiServiti(G) >= 5) traguardo(G, 'continenti');
     if (ult.reduce((s, x) => s + (x.transito || 0), 0) >= 1000) traguardo(G, 'transito');
   }
   const debitoTot = G => G.debiti.reduce((s, d) => s + d.capitale, 0);
@@ -728,6 +784,7 @@ const SIM = (() => {
     for (const [i, n] of Object.entries(G.slot)) v += n * AP[i].slotPrezzo * 0.7;
     return v;
   }
+  const continentiServiti = G => new Set([...rotteInEsercizio(G)].flatMap(k => k.split('-')).map(i => AP[i].continente)).size;
   const rotteInEsercizio = G => new Set(G.aerei.flatMap(a => mediaCiclo(a).tratte.map(l => chiave(l.da, l.a))));
   function obiettivi(G) {
     const n = flottaAttiva(G).length;
@@ -739,6 +796,7 @@ const SIM = (() => {
         const q = r.length ? r.reduce((s, [, x]) => s + (x.quota || 0), 0) / r.length : 0;
         return [{ t: '5 rotte da Milano in esercizio', v: r.length / 5, s: `${r.length}/5` }, { t: 'Quota media del 35%', v: q / 0.35, s: Math.round(q * 100) + '%' }];
       }
+      case 'globale': { const n = continentiServiti(G), v = valoreCompagnia(G); return [{ t: '5 continenti collegati', v: n / 5, s: `${n}/5` }, { t: 'Valore della compagnia 400 M€', v: v / 400e6, s: eur(v) }]; }
       default: return [];
     }
   }
@@ -758,16 +816,18 @@ const SIM = (() => {
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
+    const b0 = S.preset === 'crisi' ? 'FCO' : (S.base || base || 'BRI');
+    FUSO = AP[b0].fuso; const [ya, ma, da] = S.inizio, inizio = Date.UTC(ya, ma - 1, da, 5) - FUSO * ORA;
     const G = {
       v: VERSIONE, id: 'p' + Date.now().toString(36), scenario: scenId, nome: nome || 'Nuova Compagnia', codice: (codice || 'NC').toUpperCase().slice(0, 2),
-      inizio: S.inizio, ora: S.inizio, cassa: S.cassa || 0, debiti: [], reputazione: 50, morale: 65, stipendio: 1, servizio: 'standard', carburante: 0.8,
+      fuso: FUSO, inizio, ora: inizio, cassa: S.cassa || 0, debiti: [], reputazione: 50, morale: 65, stipendio: 1, servizio: 'standard', carburante: 0.8,
       basi: [], hub: [], slot: {}, aerei: [], rotte: {}, personale: {}, formazione: [], voli: [], registro: [], storico: [], oggi: nuovoGiorno(),
       notizie: [], eventi: [], rivali: D.RIVALI.map(r => ({ id: r.id, nome: r.nome, colore: r.colore, hub: r.hub, rep: r.rep, prezzo: r.prezzo, rotte: Object.fromEntries(Object.entries(r.rotte).map(([k, f]) => [k, { freq: f, prezzo: r.prezzo }])) })),
       traguardi: {}, stat: { pax: 0, voli: 0, utile: 0 }, mercato: [], numeri: {}, campagne: [], seq: 1, seqMarche: 0, seqVolo: 101, fallimento: 0, esito: null, genFino: 0, giorniUtile: 0
     };
     if (S.preset === 'crisi') presetCrisi(G);
     else {
-      const b = S.base || base || 'BRI';
+      const b = b0;
       G.basi.push(b); if (AP[b].slot) G.slot[b] = (S.slot && S.slot[b]) || 8;
       for (const [mod, modo] of S.flotta) aggiungiAereo(G, mod, modo, b);
       G.personale[b] = JSON.parse(JSON.stringify(S.personale));
@@ -783,7 +843,7 @@ const SIM = (() => {
   function presetCrisi(G) {
     G.nome = G.nome || 'Aliseo Airlines'; G.cassa = 0.8e6; G.reputazione = 36; G.morale = 42; G.stipendio = 0.95; G.carburante = 0.92;
     G.basi = ['FCO', 'MXP']; G.hub = ['FCO'];
-    const apri = (a, b) => { const k = chiave(a, b); if (!G.rotte[k]) { const ref = prezzoRif(km(a, b)); G.rotte[k] = { aperta: G.ora - 400 * GIORNO, pY: Math.round(ref * 0.85), pW: Math.round(ref * CLS.W.mult * 0.85), pJ: Math.round(ref * CLS.J.mult * 0.85) }; } };
+    const apri = (a, b) => { const k = chiave(a, b); if (!G.rotte[k]) { const d = km(a, b), ref = prezzoRif(d); G.rotte[k] = { aperta: G.ora - 400 * GIORNO, pY: Math.round(ref * 0.85), pW: Math.round(ref * multClasse('W', d) * 0.85), pJ: Math.round(ref * multClasse('J', d) * 0.85) }; } };
     const piani = [
       ['A320', 'leasing', [['06:30', ['FCO', 'LIN', 'FCO', 'CDG', 'FCO']]]],
       ['A320', 'proprieta', [['07:10', ['FCO', 'CTA', 'FCO', 'BCN', 'FCO']]]],
@@ -809,7 +869,9 @@ const SIM = (() => {
   function migra(G) {
     G.campagne ||= [];
     if (G.oggi && G.oggi.costi && G.oggi.costi.marketing == null) G.oggi.costi.marketing = 0;
+    G.fuso ??= AP[G.basi[0]].fuso; impostaFuso(G);
     if (G.v >= VERSIONE) return G;
+    if (G.v >= 2) return migraV3(G);
     const oggi = mezzanotte(G.ora), b0 = G.basi[0], vecchio = G.personale || {};
     G.hub ||= []; G.numeri ||= {}; G.seqVolo = Math.max(G.seqVolo || 0, 101);
     G.personale = { [b0]: { CMD: vecchio.CMD || {}, FO: vecchio.FO || {}, CC: vecchio.CC || 0, ADV: vecchio.ADV || 0 } };
@@ -829,12 +891,22 @@ const SIM = (() => {
     G.voli = []; G.genFino = 0;
     for (let i = 0; i <= 2; i++) generaGiorno(G, giornoDopo(oggi, i));
     G.v = VERSIONE; vendite(G);
-    notizia(G, 'Partita aggiornata: cabine a tre classi, cicli su più giorni, equipaggi per base e hub.', 'info');
+    notizia(G, 'Partita aggiornata: cabine a tre classi, cicli su più giorni, equipaggi per base e hub, voli in tutto il mondo.', 'info');
+    return G;
+  }
+  // Versione 3: orologio sul fuso della base, voli oltre la mezzanotte, mondo intero
+  function migraV3(G) {
+    for (const ae of G.aerei) { ae.prog.ancora = mezzanotte(ae.prog.ancora + 12 * ORA); delete ae._piano; }
+    G.voli = G.voli.filter(v => v.stato !== 'prog'); G.genFino = 0;
+    for (let i = -1; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
+    G.v = VERSIONE; G._fab = null; vendite(G);
+    notizia(G, 'Ora puoi volare in tutto il mondo: nuovi aeroporti, aerei di lungo raggio e orari con i fusi orari.', 'info');
     return G;
   }
 
   /* ---------- Avanzamento del tempo ---------- */
   function avanza(G, dt) {
+    impostaFuso(G);
     const fine = G.ora + dt;
     while (G.ora < fine && !(G.esito && G.esito.tipo === 'fallimento')) {
       const prima = G.ora; G.ora = Math.min(fine, G.ora + 5 * MIN);
@@ -853,7 +925,7 @@ const SIM = (() => {
       const k = chiave(a, b); if (G.rotte[k]) return err('Rotta già aperta');
       if (G.cassa < 30000) return err('Cassa insufficiente');
       const d = km(a, b), ref = prezzoRif(d); paga(G, 30000);
-      G.rotte[k] = { aperta: G.ora, pY: ref, pW: Math.round(ref * CLS.W.mult), pJ: Math.round(ref * CLS.J.mult) };
+      G.rotte[k] = { aperta: G.ora, pY: ref, pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) };
       notizia(G, `Aperta la rotta ${a}–${b} (${d} km). Campagna di lancio: ${eur(30000)}.`, 'buona'); controllaTraguardi(G);
       return ok('Rotta aperta');
     },
@@ -890,7 +962,7 @@ const SIM = (() => {
       if (ae.stato === 'consegna') { ae.cab = cab; paga(G, Math.round(costo / 2)); return ok(`Cabina modificata prima della consegna (${eur(costo / 2)})`); }
       const inizio = fineGiornataAereo(G, ae);
       ae.lavori = { tipo: 'cabina', inizio, fine: inizio + 72 * ORA, costo, cab };
-      notizia(G, `${ae.marche}: riconfigurazione cabina dalle ${oraDaMin((inizio - mezzanotte(inizio)) / MIN)}, 3 giorni di fermo, ${eur(costo)}.`, 'info');
+      notizia(G, `${ae.marche}: riconfigurazione cabina dalle ${oraIn(inizio)}, 3 giorni di fermo, ${eur(costo)}.`, 'info');
       return ok('Lavori programmati: l’aereo resta a terra 3 giorni');
     },
     vendi(G, id) {
@@ -911,8 +983,8 @@ const SIM = (() => {
     },
     chiudiBase(G, i) {
       if (G.basi.length < 2) return err('Serve almeno una base');
-      if (G.aerei.some(a => a.stato !== 'venduto' && a.prog.giorni.some(g => g.scali[0] === i))) return err('Qualche aereo pernotta ancora in questa base');
-      if (G.aerei.some(a => a.stato !== 'venduto' && a.prog.giorni.some(g => turniGiorno(G, legsGiorno(a, g, a.prog.turn)).turni.some(t => t.base === i)))) return err('Qualche turno di equipaggio parte ancora da questa base');
+      if (G.aerei.some(a => a.stato !== 'venduto' && a.prog.giorni.some(g => g.scali[0] === i || g.scali.at(-1) === i))) return err('Qualche aereo pernotta ancora in questa base');
+      if (G.aerei.some(a => a.stato !== 'venduto' && pianoCiclo(G, a).turni.some(t => t.base === i))) return err('Qualche turno di equipaggio parte ancora da questa base');
       const P = squadra(G, i), n = P.CC + P.ADV + Object.values(P.CMD).reduce((s, x) => s + x, 0) + Object.values(P.FO).reduce((s, x) => s + x, 0);
       if (n) return err('Trasferisci o licenzia prima il personale della base');
       G.basi = G.basi.filter(b => b !== i); G.hub = G.hub.filter(b => b !== i); delete G.personale[i]; return ok('Base chiusa');
@@ -984,6 +1056,6 @@ const SIM = (() => {
     }
   };
 
-  return { VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, turniGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze, fabbisogno, copertura, squadra, costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze, fabbisogno, copertura, squadra, costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

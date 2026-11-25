@@ -9,9 +9,14 @@ const num = (n, d = 0) => new Intl.NumberFormat('it-IT', { maximumFractionDigits
 const pct = x => x == null || isNaN(x) || !isFinite(x) ? '—' : Math.round(x * 100) + '%';
 const mln = n => Math.abs(n) >= 1e6 ? (n / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' M€' : Math.abs(n) >= 1e4 ? Math.round(n / 1e3) + 'k €' : eur(n);
 const pad = n => String(n).padStart(2, '0');
-const fmtOra = t => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-const fmtData = t => new Date(t).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const fmtGiorno = t => new Date(t).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+const fmtOra = t => SIM.oraIn(t);
+const fmtData = t => SIM.loc(t).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const fmtGiorno = t => SIM.loc(t).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+const fusoTxt = f => 'UTC' + (f >= 0 ? '+' : '−') + String(Math.abs(f)).replace('.5', ':30');
+// orario nell'ora locale di un aeroporto, mostrato solo se il fuso è diverso da quello della base
+const locale = (t, i) => AP[i].fuso !== G.fuso ? ` <span class="muto piccolo">(${SIM.oraLocaleT(t, i)} a ${i})</span>` : '';
+const oraMin = m => SIM.oraDaMin(m) + (m >= 1440 ? '<sup>+1</sup>' : '');
+const localeMin = (m, i) => AP[i].fuso !== G.fuso ? ` <span class="muto">(${SIM.oraDaMin(SIM.oraLocaleMin(m, i))} locali)</span>` : '';
 const fmtDur = m => `${Math.floor(m / 60)}h${pad(Math.round(m % 60))}`;
 const citta = i => AP[i]?.citta || i;
 const somma = SIM.somma;
@@ -95,14 +100,29 @@ function postiDirezione(a, b) {
 }
 
 /* ---------- Mappa ---------- */
+// Punto a frazione f lungo la rotta più breve tra due aeroporti (interpolazione sferica)
+function puntoArco(A, B, f) {
+  const r = Math.PI / 180, la1 = A.lat * r, lo1 = A.lon * r, la2 = B.lat * r, lo2 = B.lon * r;
+  const d = 2 * Math.asin(Math.sqrt(Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2));
+  if (d < 1e-9) return [A.lat, A.lon];
+  const a = Math.sin((1 - f) * d) / Math.sin(d), b = Math.sin(f * d) / Math.sin(d);
+  const x = a * Math.cos(la1) * Math.cos(lo1) + b * Math.cos(la2) * Math.cos(lo2), y = a * Math.cos(la1) * Math.sin(lo1) + b * Math.cos(la2) * Math.sin(lo2), z = a * Math.sin(la1) + b * Math.sin(la2);
+  return [Math.atan2(z, Math.hypot(x, y)) / r, Math.atan2(y, x) / r];
+}
+// Arco come lista di punti, con le longitudini "srotolate" per non attraversare la mappa quando passa la linea del cambio di data
+function arco(A, B) {
+  const n = Math.max(2, Math.ceil(SIM.km(A.iata, B.iata) / 300)), pts = [];
+  for (let i = 0; i <= n; i++) { const p = puntoArco(A, B, i / n); if (pts.length) { const prev = pts.at(-1)[1]; while (p[1] - prev > 180) p[1] -= 360; while (p[1] - prev < -180) p[1] += 360; } pts.push(p); }
+  return pts;
+}
 const AEREO_PATH = 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z';
 const Mappa = {
   map: null, el: null, marker: {},
   init() {
     if (!window.L) return false;
     this.el = document.createElement('div'); this.el.className = 'mappa';
-    this.map = L.map(this.el, { zoomSnap: 0.5 }).setView([44, 11], 5);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { minZoom: 4, maxZoom: 9, attribution: '© OpenStreetMap' }).addTo(this.map);
+    this.map = L.map(this.el, { zoomSnap: 0.5, worldCopyJump: true }).setView([30, 10], 3);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { minZoom: 2, maxZoom: 9, attribution: '© OpenStreetMap' }).addTo(this.map);
     this.lRotte = L.layerGroup().addTo(this.map); this.lScali = L.layerGroup().addTo(this.map); this.lAerei = L.layerGroup().addTo(this.map);
     return true;
   },
@@ -115,7 +135,7 @@ const Mappa = {
       this.map.invalidateSize();
       if (!this.inquadrata) {
         const pts = [...new Set([...G.basi, ...Object.keys(G.rotte).flatMap(k => k.split('-'))])].map(i => [AP[i].lat, AP[i].lon]);
-        if (pts.length > 1) this.map.fitBounds(pts, { padding: [40, 40], maxZoom: 7 }); else if (pts.length) this.map.setView(pts[0], 6);
+        if (pts.length > 1) this.map.fitBounds(pts, { padding: [40, 40], maxZoom: 7 }); else if (pts.length) this.map.setView(pts[0], 5);
         this.inquadrata = true;
       }
     }, 0);
@@ -128,7 +148,7 @@ const Mappa = {
     for (const k of Object.keys(G.rotte)) {
       const [a, b] = k.split('-'); serviti.add(a); serviti.add(b);
       const on = attive.has(k);
-      L.polyline([[AP[a].lat, AP[a].lon], [AP[b].lat, AP[b].lon]], { color: '#2a78d6', weight: on ? 2.5 : 1.5, opacity: on ? 0.7 : 0.35, dashArray: on ? null : '5 6' }).addTo(this.lRotte);
+      L.polyline(arco(AP[a], AP[b]), { color: '#2a78d6', weight: on ? 2.5 : 1.5, opacity: on ? 0.7 : 0.35, dashArray: on ? null : '5 6' }).addTo(this.lRotte);
     }
     for (const i of serviti) {
       const base = G.basi.includes(i), hub = G.hub.includes(i);
@@ -147,8 +167,8 @@ const Mappa = {
       let lat, lon, rot = 0, colore = '#7b8494', desc;
       if (v && v.stato === 'volo') {
         const A = AP[v.da], B = AP[v.a], f = Math.max(0, Math.min(1, (G.ora - v.depEff) / (v.arrEff - v.depEff)));
-        lat = A.lat + (B.lat - A.lat) * f; lon = A.lon + (B.lon - A.lon) * f;
-        rot = Math.atan2((B.lon - A.lon) * Math.cos(lat * Math.PI / 180), B.lat - A.lat) * 180 / Math.PI;
+        [lat, lon] = puntoArco(A, B, f); const [la2, lo2] = puntoArco(A, B, Math.min(1, f + 0.01));
+        rot = Math.atan2((lo2 - lon) * Math.cos(lat * Math.PI / 180), la2 - lat) * 180 / Math.PI;
         colore = '#2a78d6'; desc = `<b>${ae.marche}</b> · volo ${v.num}<br>${v.da} → ${v.a} · arrivo ${fmtOra(v.arrEff)}<br>${SIM.venduti(v)}/${SIM.posti(ae)} passeggeri${somma(v.t) ? ` (${somma(v.t)} in coincidenza)` : ''}`;
       } else {
         const p = AP[v && v.stato === 'rit' ? v.da : ae.pos] || AP[ae.base];
@@ -177,7 +197,7 @@ function statoAereo(ae) {
 
 /* ---------- Grafici ---------- */
 function passoBello(x) { const p = 10 ** Math.floor(Math.log10(x || 1)), n = x / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
-function etichetteX(dati, i, x, H) { return i % Math.ceil(dati.length / 8) === 0 ? `<text class="asse" x="${x}" y="${H - 6}" text-anchor="middle">${new Date(dati[i].t).getDate()}/${new Date(dati[i].t).getMonth() + 1}</text>` : ''; }
+function etichetteX(dati, i, x, H) { return i % Math.ceil(dati.length / 8) === 0 ? `<text class="asse" x="${x}" y="${H - 6}" text-anchor="middle">${SIM.loc(dati[i].t).getUTCDate()}/${SIM.loc(dati[i].t).getUTCMonth() + 1}</text>` : ''; }
 function graficoUtile(dati) {
   const W = 640, H = 220, ml = 56, mr = 6, mt = 10, mb = 24, iw = W - ml - mr, ih = H - mt - mb;
   const max = Math.max(1, ...dati.map(d => Math.abs(d.v))), passo = passoBello(max / 2);
@@ -229,6 +249,13 @@ function graficoClassi(dati) {
   return `<div class="legenda">${CL.map(c => `<span><i style="background:var(--cl-${c})"></i>${CLS[c].nome}</span>`).join('')}</div><div class="grafico">${s}</svg></div>`;
 }
 
+/* ---------- Elenchi di aeroporti raggruppati per continente ---------- */
+const CONTINENTI = ['Europa', 'Nord America', 'Sud America', 'Africa', 'Asia', 'Oceania'];
+const perContinente = () => Object.values(AP).sort((a, b) => CONTINENTI.indexOf(a.continente) - CONTINENTI.indexOf(b.continente) || a.nomePaese.localeCompare(b.nomePaese) || a.citta.localeCompare(b.citta));
+function opzioniAeroporti(lista, sel, extra = () => '') {
+  return CONTINENTI.map(c => { const g = lista.filter(a => a.continente === c); return g.length ? `<optgroup label="${c}">${g.map(a => `<option value="${a.iata}" ${a.iata === sel ? 'selected' : ''}>${h(a.citta)} · ${a.iata} (${h(a.nomePaese)})${extra(a)}</option>`).join('')}</optgroup>` : ''; }).join('');
+}
+
 /* ---------- Barra superiore ---------- */
 function costruisciCima() {
   $('#cima').innerHTML = `
@@ -245,7 +272,7 @@ function costruisciCima() {
 }
 function aggiornaVel() { document.querySelectorAll('.velocita button').forEach(b => b.classList.toggle('on', +b.dataset.v === vel)); }
 function aggiornaCima() {
-  $('#cOra').textContent = fmtOra(G.ora); $('#cData').textContent = fmtData(G.ora);
+  $('#cOra').textContent = fmtOra(G.ora); $('#cData').textContent = `${fmtData(G.ora)} · ora di ${citta(G.basi[0])}`;
   const c = $('#cCassa'); c.textContent = eur(G.cassa); c.className = G.cassa < 0 ? 'neg' : '';
   const ieri = G.storico.at(-1), u = $('#cUtile'); u.textContent = ieri ? eur(ieri.utile) : '—'; u.className = ieri && ieri.utile < 0 ? 'neg' : '';
   $('#cRep').textContent = Math.round(G.reputazione) + '/100';
@@ -326,7 +353,7 @@ function tabellaOggi() {
   return schede + `<table class="solo-desktop"><thead><tr><th>Volo</th><th>Tratta</th><th>Aereo · equipaggio</th><th>Partenza</th><th>Arrivo</th><th>Venduti per classe</th><th class="num">In transito</th><th class="num">Incassato</th><th>Stato</th></tr></thead><tbody>
     ${lista.map(v => { const ae = G.aerei.find(a => a.id === v.ae), cab = ae ? ae.cab : SIM.zero(), vend = { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y };
       return `<tr><td><b>${h(v.num)}</b></td><td>${v.da} → ${v.a} <span class="muto piccolo">${h(citta(v.da))}–${h(citta(v.a))}</span></td><td>${h(ae?.marche || '—')} <span class="muto piccolo">base ${v.base}${v.fineTurno ? ', rientro' : ''}</span></td>
-      <td>${SIM.mezzanotte(v.dep) !== g0 ? '<span class="muto piccolo">domani</span> ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` <span class="muto piccolo">→ ${fmtOra(v.depEff)}</span>` : ''}</td><td>${fmtOra(v.arrEff || v.arr)}</td>
+      <td>${SIM.mezzanotte(v.dep) !== g0 ? '<span class="muto piccolo">domani</span> ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` <span class="muto piccolo">→ ${fmtOra(v.depEff)}</span>` : ''}${locale(v.dep, v.da)}</td><td>${fmtOra(v.arrEff || v.arr)}${locale(v.arrEff || v.arr, v.a)}</td>
       <td>${chipCab(cab, vend)}</td><td class="num">${somma(v.t) || ''}</td><td class="num">${eur(somma(v.inc))}</td><td>${badgeVolo(v)}</td></tr>`; }).join('')}</tbody></table>
     <p class="nota">I biglietti si vendono nei tre giorni prima della partenza. “In transito” sono i passeggeri che proseguono con una tua coincidenza in un hub.</p>`;
 }
@@ -382,7 +409,7 @@ function cartaAereo(ae) {
 }
 function barraCabina(mod, cab) {
   const sp = MOD[mod].spazio;
-  return `<div class="cabina-barra" style="margin-top:6px" title="Spazio occupato">${CL.filter(c => cab[c]).map(c => `<div style="width:${cab[c] * CLS[c].spazio / sp * 100}%;background:var(--cl-${c})"></div>`).join('')}</div>`;
+  return `<div class="cabina-barra" style="margin-top:6px" title="Spazio occupato">${CL.filter(c => cab[c]).map(c => `<div style="width:${cab[c] * SIM.spazioPosto(mod, c) / sp * 100}%;background:var(--cl-${c})"></div>`).join('')}</div>`;
 }
 
 /* Configuratore di cabina (acquisto e riconfigurazione) */
@@ -390,7 +417,7 @@ function configuratore({ titolo, mod, cab, info = '', piede, extra = '' }) {
   modale({
     titolo, larga: true,
     corpo: `${info}<div class="form config">
-      ${CL.map(c => `<label>${CLS[c].nome} <span class="aiuto">${String(CLS[c].spazio).replace('.', ',')} unità a posto · tariffa base ×${String(CLS[c].mult).replace('.', ',')}</span><input type="number" min="0" step="1" id="cab${c}" value="${cab[c]}"></label>`).join('')}
+      ${CL.map(c => `<label>${CLS[c].nome} <span class="aiuto">${String(SIM.spazioPosto(mod, c)).replace('.', ',')} unità a posto${MOD[mod].lungo && c === 'J' ? ' (poltrona letto)' : ''}</span><input type="number" min="0" step="1" id="cab${c}" value="${cab[c]}"></label>`).join('')}
       <label>Preimpostazioni<span class="filtri" style="margin:0">
         <button type="button" class="piccolo" data-az="cab-preset" data-p="economy">Tutta Economy</button>
         <button type="button" class="piccolo" data-az="cab-preset" data-p="mista">Mista</button>
@@ -404,7 +431,7 @@ function configuratore({ titolo, mod, cab, info = '', piede, extra = '' }) {
 }
 function leggiCab() { const c = {}; for (const x of CL) c[x] = Math.max(0, Math.floor(+$('#cab' + x).value || 0)); return c; }
 function aggiornaConfig() {
-  const mod = $('#modale').dataset.mod, cab = leggiCab(), sp = MOD[mod].spazio, usato = SIM.spazioUsato(cab), e = SIM.validaCabina(mod, cab);
+  const mod = $('#modale').dataset.mod, cab = leggiCab(), sp = MOD[mod].spazio, usato = SIM.spazioUsato(cab, mod), e = SIM.validaCabina(mod, cab);
   const fittizio = { cab }, cm = SIM.cabMin(fittizio);
   $('#cabInfo').innerHTML = `${barraCabina(mod, cab)}
     <p class="piccolo">Spazio usato <b>${num(usato, 1)}</b> su <b>${sp}</b> unità · <b>${somma(cab)}</b> posti · personale di cabina minimo <b>${cm}</b> (1 ogni 50 posti)</p>
@@ -425,7 +452,7 @@ VISTE.programmazione = () => {
     const giorni = Array.from({ length: n }, (_, i) => JSON.parse(JSON.stringify(ae.prog.giorni[(oggiIdx + i) % n])));
     bozza = { aeId: ae.id, turn: ae.prog.turn, giorni, sel: 0, orig: JSON.stringify({ turn: ae.prog.turn, giorni }) };
   }
-  return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ripete un ciclo di 1–7 giorni. Di notte deve stare in una base; gli equipaggi partono dalla loro base e cambiano solo in una base.</span></div>
+  return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ripete un ciclo di 1–7 giorni. Notti e soste lunghe solo nelle basi; nessun decollo tra le 00:30 e le 05:30 ora locale. Gli orari sono nell’ora della tua base principale, tra parentesi l’ora locale.</span></div>
   <div class="prog">
     <div class="lista-aerei">${f.map(a => `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span>${h(a.marche)} <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${a.prog.giorni.length > 1 ? a.prog.giorni.length + 'g · ' : ''}${oreGiorno(a).toFixed(1)} h</span></button>`).join('')}</div>
     <div class="pannello" id="editor">${editor(ae)}</div>
@@ -444,11 +471,11 @@ function editor(ae) {
       ${bozza.giorni.length < 7 ? '<button data-az="p-nuovo-giorno">+ Giorno</button>' : ''}${bozza.giorni.length > 1 ? '<button class="pericolo" data-az="p-togli-giorno">Elimina questo giorno</button>' : ''}</div>
     <div class="filtri">
       <label class="campo">Prima partenza del giorno ${bozza.sel + 1}<input type="time" id="pInizio" value="${g.inizio}" step="300"></label>
-      <label class="campo">Turnaround (tutti i giorni)<select id="pTurn">${opzioni([30, 35, 40, 45, 50, 60].map(x => [x, x + ' minuti']), bozza.turn)}</select></label>
-      <label class="campo">Pernotta la notte prima a<select id="pPartenza">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), g.scali[0])}</select></label>
+      <label class="campo">Turnaround (tutti i giorni)<select id="pTurn">${opzioni((m.lungo ? [75, 90, 120, 150] : [30, 35, 40, 45, 50, 60, 75, 90]).map(x => [x, x + ' minuti']), bozza.turn)}</select></label>
+      <label class="campo">Parte da<select id="pPartenza">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), g.scali[0])}</select></label>
     </div>
     <div>${gv.legs.length ? gv.legs.map((l, i) => { const r = G.rotte[SIM.chiave(l.da, l.a)];
-      return `<div class="tratta-riga"><span class="n">${i + 1}</span><span><b>${l.da} → ${l.a}</b> <span class="muto">${h(citta(l.da))}–${h(citta(l.a))}</span><br><span class="piccolo">${SIM.oraDaMin(l.dep)}–${SIM.oraDaMin(l.arr)} · ${fmtDur(l.dur)} · ${num(SIM.km(l.da, l.a))} km${r ? ` · ${CL.filter(c => ae.cab[c]).map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}` : ''}${G.hub.includes(l.a) ? ' · <b>arrivo in hub</b>' : ''}</span></span><span>${i === gv.legs.length - 1 ? `<button class="piccolo" data-az="p-togli">Togli</button>` : ''}</span></div>`; }).join('')
+      return `<div class="tratta-riga"><span class="n">${i + 1}</span><span><b>${l.da} → ${l.a}</b> <span class="muto">${h(citta(l.da))}–${h(citta(l.a))}</span><br><span class="piccolo">${oraMin(l.dep)}${localeMin(l.dep, l.da)} – ${oraMin(l.arr)}${localeMin(l.arr, l.a)} · ${fmtDur(l.dur)} · ${num(SIM.km(l.da, l.a))} km${r ? ` · ${CL.filter(c => ae.cab[c]).map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}` : ''}${G.hub.includes(l.a) ? ' · <b>arrivo in hub</b>' : ''}</span></span><span>${i === gv.legs.length - 1 ? `<button class="piccolo" data-az="p-togli">Togli</button>` : ''}</span></div>`; }).join('')
       : `<p class="muto">Nessuna tratta: l’aereo resta a terra a ${g.scali[0]} per tutto il giorno.</p>`}</div>
     <div class="filtri mt">
       <select id="pDest">${dest.length ? opzioni(dest.map(x => [x.d, `${x.d} · ${citta(x.d)} · ${num(x.k)} km${x.k > m.autonomia ? ' (fuori autonomia)' : ''}${G.basi.includes(x.d) ? ' · base' : ''}`]), '') : '<option value="">Nessuna rotta aperta da ' + ultimo + '</option>'}</select>
@@ -458,7 +485,7 @@ function editor(ae) {
       ${g.scali.length > 1 ? `<button class="pericolo" data-az="p-svuota">Svuota il giorno</button>` : ''}
       <a class="btn" href="#/rotte">Apri altre rotte</a>
     </div>
-    ${gv.turni.length ? `<b class="piccolo">Turni degli equipaggi del giorno ${bozza.sel + 1}</b><ul class="turni">${gv.turni.map((t, i) => `<li>Turno ${i + 1}: equipaggio della base <b>${t.base}</b> · servizio ${SIM.oraDaMin(t.inizio)}–${SIM.oraDaMin(t.fine)} (${fmtDur(t.fine - t.inizio)}, ${fmtDur(t.blocco)} di volo) · ${t.legs.length} tratte · ${t.termina === t.base ? 'rientra a casa' : `<span style="color:var(--warn)">finisce a ${t.termina}: rientro in posizionamento</span>`}</li>`).join('')}</ul>` : ''}
+    ${gv.turni.length ? `<b class="piccolo">Turni degli equipaggi del giorno ${bozza.sel + 1}</b><ul class="turni">${gv.turni.map((t, i) => `<li>Turno ${i + 1}: equipaggio della base <b>${t.base}</b> · servizio dalle ${oraMin(t.legs[0].dep - 60)}, durata ${fmtDur(t.fine - t.inizio)} (${fmtDur(t.blocco)} di volo)${t.lungo ? ' · <b>lungo raggio, 3 piloti</b>' : ''}${t.albergo ? ' · equipaggio in albergo fuori base' : ''} · ${t.legs.length} tratte · ${t.termina === t.base ? 'rientra a casa' : `<span style="color:var(--warn)">finisce a ${t.termina}: albergo o rientro a pagamento</span>`}</li>`).join('')}</ul>` : ''}
     <p class="piccolo mt">Ciclo di <b>${bozza.giorni.length}</b> giorn${bozza.giorni.length > 1 ? 'i' : 'o'} · media <b>${media.ore.toFixed(1)} h</b> di volo al giorno · notti a <b>${bozza.giorni.map(x => x.scali.at(-1)).join(' → ')}</b></p>
     ${v.E.length || v.W.length ? `<ul class="problemi">${v.E.map(e => `<li class="errore">✖ ${h(e)}</li>`).join('')}${v.W.map(e => `<li class="avviso">▲ ${h(e)}</li>`).join('')}</ul>` : media.tratte.length ? '<ul class="problemi"><li class="ok">✓ Programma coerente: notti in base, turni entro 13 ore</li></ul>' : ''}
     <div class="filtri mt"><button class="primario" data-az="p-salva" ${v.E.length || !modificato ? 'disabled' : ''}>Salva rotazione</button>${modificato ? '<button data-az="p-annulla">Annulla modifiche</button><span class="piccolo muto">Modifiche non salvate</span>' : ''}</div>`;
@@ -469,7 +496,7 @@ function cronoprogramma() {
   for (const ae of flotta()) {
     s += `<div class="riga"><div class="chi" data-az="sel-aereo" data-id="${ae.id}">${h(ae.marche)}<small>${ae.modello} · giorno ${SIM.indiceCiclo(ae.prog, oggi) + 1}/${ae.prog.giorni.length}</small></div><div class="pista">`;
     if (ae.lavori && ae.lavori.inizio < oggi + GIORNO) s += `<div class="blocco manut" style="left:${pos(ae.lavori.inizio)}%;width:${pos(ae.lavori.fine) - pos(ae.lavori.inizio)}%">${ae.lavori.tipo === 'cabina' ? 'Cabina' : 'Ispezione'}</div>`;
-    for (const l of SIM.tratteDi(ae, oggi)) s += `<div class="blocco" style="left:${l.dep / 14.4}%;width:${l.dur / 14.4}%" data-tip="${h(`${l.da}→${l.a} ${SIM.oraDaMin(l.dep)}–${SIM.oraDaMin(l.arr)}`)}">${l.da}-${l.a}</div>`;
+    for (const l of SIM.tratteDi(ae, oggi)) if (l.dep < 1440) s += `<div class="blocco" style="left:${l.dep / 14.4}%;width:${Math.min(l.dur, 1440 - l.dep) / 14.4}%" data-tip="${h(`${l.da}→${l.a} ${SIM.oraDaMin(l.dep)}–${SIM.oraDaMin(l.arr)}`)}">${l.da}-${l.a}</div>`;
     s += '</div></div>';
   }
   return s + `<div class="ora-ora" style="left:calc(100px + (100% - 100px) * ${(G.ora - oggi) / GIORNO})"></div></div>`;
@@ -482,7 +509,7 @@ VISTE.rotte = () => {
   <div class="pannello"><div class="tab-wrap">${righe.length ? `<table><thead><tr><th>Rotta</th><th class="num">Km</th><th class="num">Voli/g</th><th>Business</th><th>Premium</th><th>Economy</th><th>Quota</th><th>Concorrenti</th><th>Load factor 7 gg</th><th class="num">Ricavi 7 gg</th><th class="num">Utile voli 7 gg</th><th></th></tr></thead><tbody>
     ${righe.map(([k, r]) => { const [a, b] = k.split('-'), d = SIM.km(a, b), ref = SIM.prezzoRif(d), s = statsRotta(k), riv = SIM.rivaliSu(G, a, b), f = freqRotta(k);
       return `<tr><td><b>${a}–${b}</b> <span class="muto piccolo">${h(citta(a))}–${h(citta(b))}</span></td><td class="num">${num(d)}</td><td class="num">${num(f, 1)}</td>
-      ${CL.map(c => `<td><input class="prezzo" type="number" min="10" step="1" value="${r['p' + c]}" data-prezzo="${k}" data-cl="${c}" title="Riferimento ${eur(ref * CLS[c].mult)}"></td>`).join('')}
+      ${CL.map(c => `<td><input class="prezzo" type="number" min="10" step="1" value="${r['p' + c]}" data-prezzo="${k}" data-cl="${c}" title="Riferimento ${eur(ref * SIM.multClasse(c, d))}"></td>`).join('')}
       <td>${f ? barretta(r.quota || 0, null, [2, 2]) : '<span class="muto piccolo">nessun volo</span>'}${(() => { const sp = Math.max(SIM.spinta(G, a, b).tot, SIM.spinta(G, b, a).tot); return sp > 0.01 ? `<span class="badge b-info" title="Effetto della pubblicità sull’attrattività">📣 +${Math.round(sp * 100)}%</span>` : ''; })()}</td>
       <td>${riv.length ? [...new Map(riv.map(x => [x.riv.id, x])).values()].map(x => `<span class="pallino" style="background:${x.riv.colore}" title="${h(x.riv.nome)}"></span>${h(x.riv.nome)}${x.guerra ? ' <span class="badge b-err">sconti</span>' : ''}`).join('<br>') : '<span class="muto">nessuno</span>'}</td>
       <td>${s.posti ? barretta(s.pax / s.posti, null, [0.95, 1.01]) : '<span class="muto">—</span>'}</td><td class="num">${s.voli ? eur(s.ricavi) : '—'}</td><td class="num">${s.voli ? segno(s.ricavi - s.costi) : '—'}</td>
@@ -491,11 +518,11 @@ VISTE.rotte = () => {
   <p class="nota">Ogni classe ha la sua tariffa (passa sopra la casella per il riferimento). Prezzi alti riducono domanda e quota; se una classe è piena o manca sull’aereo, parte dei clienti scende di classe. Una rotta nuova raggiunge la piena domanda in circa 2 mesi. Dettaglio per classe nella pagina Ricavi.</p></div>`;
 };
 function formApriRotta() {
-  const base = G.basi[0], ordina = Object.values(AP).sort((a, b) => (G.basi.includes(b.iata) - G.basi.includes(a.iata)) || a.citta.localeCompare(b.citta));
+  const base = G.basi[0], ordina = perContinente();
   modale({
     titolo: 'Apri una nuova rotta', larga: true,
-    corpo: `<div class="form"><label>Da<select id="rDa">${opzioni(ordina.map(a => [a.iata, `${a.iata} · ${a.citta}${G.hub.includes(a.iata) ? ' (hub)' : G.basi.includes(a.iata) ? ' (base)' : ''}`]), base)}</select></label>
-      <label>A<select id="rA">${opzioni([['', '— scegli —'], ...ordina.filter(a => a.iata !== base).map(a => [a.iata, `${a.iata} · ${a.citta} (${a.paese})`])], '')}</select></label></div>
+    corpo: `<div class="form"><label>Da<select id="rDa">${opzioniAeroporti(ordina, base, a => G.hub.includes(a.iata) ? ' (hub)' : G.basi.includes(a.iata) ? ' (base)' : '')}</select></label>
+      <label>A<select id="rA">${'<option value="">— scegli —</option>' + opzioniAeroporti(ordina.filter(a => a.iata !== base), '')}</select></label></div>
       <div id="infoRotta" class="mt"></div>`,
     piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-rotta">Apri rotta (30.000 €)</button>`
   });
@@ -507,11 +534,11 @@ function infoRotta() {
   const d = SIM.km(a, b), domani = SIM.giornoDopo(SIM.mezzanotte(G.ora)), am = SIM.analisiMercato(G, a, b, domani, 3, SIM.prezzoRif(d));
   const modelli = [...new Set(flotta().map(x => x.modello))], ok = modelli.filter(x => MOD[x].autonomia >= d), slot = [a, b].filter(i => AP[i].slot), q = am.quote;
   box.innerHTML = `<table><tbody>
-    <tr><td>Distanza</td><td><b>${num(d)} km</b> · ${fmtDur(SIM.durata(d, 'A320'))} con un A320, ${fmtDur(SIM.durata(d, 'ATR72'))} con un ATR</td></tr>
+    <tr><td>Distanza</td><td><b>${num(d)} km</b> · ${d > 5000 ? `${fmtDur(SIM.durata(d, 'A359'))} con un A350` : `${fmtDur(SIM.durata(d, 'A320'))} con un A320, ${fmtDur(SIM.durata(d, 'ATR72'))} con un ATR`}${AP[a].fuso !== AP[b].fuso ? ` · fuso orario ${fusoTxt(AP[a].fuso)} → ${fusoTxt(AP[b].fuso)}` : ''}</td></tr>
     <tr><td>Domanda totale stimata</td><td><b>${num(am.mercato)}</b> viaggiatori al giorno per direzione (tutti i mezzi)</td></tr>
     <tr><td>Clientela</td><td>${CL.map(c => `<span class="chip"><i style="background:var(--cl-${c})"></i>${CLS[c].nome} ${pct(q[c])}</span>`).join('')}</td></tr>
     <tr><td>Con 3 voli al giorno ai prezzi di riferimento</td><td>circa <b>${num(am.pax / am.maturita)}</b> passeggeri al giorno per direzione a regime (${pct(am.quota)} di quota)</td></tr>
-    <tr><td>Concorrenti</td><td>${am.rivali.length ? am.rivali.map(x => `<span class="pallino" style="background:${x.riv.colore}"></span>${h(x.riv.nome)} (${x.freq} voli/g, ${pct(x.quota)})`).join(' · ') : 'nessuno'} · treno, auto e traghetti ${pct(am.altri)}</td></tr>
+    <tr><td>Concorrenti</td><td>${am.rivali.length ? am.rivali.map(x => `<span class="pallino" style="background:${x.riv.colore}"></span>${h(x.riv.nome)} (${x.freq} voli/g, ${pct(x.quota)})`).join(' · ') : 'nessuno'} · ${d > 3000 ? 'altre compagnie' : 'treno, auto e traghetti'} ${pct(am.altri)}</td></tr>
     <tr><td>Aerei che possono volarci</td><td>${modelli.length ? (ok.length ? ok.map(x => MOD[x].nome).join(', ') : '<span class="neg">nessuno della tua flotta</span>') : '—'}</td></tr>
     <tr><td>Slot</td><td>${slot.length ? slot.map(i => `${i} è regolato: hai ${G.slot[i] || 0} slot`).join('<br>') : 'nessun aeroporto a slot'}</td></tr>
     ${G.hub.some(H => H === a || H === b) ? `<tr><td>Hub</td><td>La rotta tocca un tuo hub: oltre ai passeggeri locali porterà passeggeri in coincidenza.</td></tr>` : ''}
@@ -523,8 +550,8 @@ function analisiPrezzi(k, cl = UI.classeAnalisi) {
   if (!cap[cl] && voli) cl = CL.find(c => cap[c]) || 'Y';
   const capC = cap[cl] || (cl === 'Y' ? 150 * f : 12 * f);
   const righe = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7].map(m => {
-    const p = Math.round(ref * CLS[cl].mult * m), prezzi = { pJ: r.pJ, pW: r.pW, pY: r.pY, ['p' + cl]: p };
-    const am = SIM.analisiMercato(G, a, b, domani, f, prezzi.pY), dom = SIM.domandaClassi(am.pax, am.quote, prezzi, am.ref);
+    const p = Math.round(ref * SIM.multClasse(cl, d) * m), prezzi = { pJ: r.pJ, pW: r.pW, pY: r.pY, ['p' + cl]: p };
+    const am = SIM.analisiMercato(G, a, b, domani, f, prezzi.pY), dom = SIM.domandaClassi(am.pax, am.quote, prezzi, am.ref, am.km);
     const pax = Math.min(capC, dom[cl]);
     return { p, pax, lf: pax / capC, ric: pax * p, quota: am.quota };
   });
@@ -770,7 +797,7 @@ VISTE.aeroporti = () => {
   <div class="filtri"><input type="search" placeholder="Cerca aeroporto…" value="${h(UI.aeroQ)}" id="aeroQ"></div>
   <div class="pannello"><div class="tab-wrap"><table><thead><tr><th>Aeroporto</th><th>Paese</th><th class="num">Bacino</th><th>Turismo</th><th class="num">Tassa/pax</th><th class="num">Tue partenze/g</th><th>Slot</th><th></th></tr></thead><tbody>
     ${lista.map(a => { const base = G.basi.includes(a.iata), hub = G.hub.includes(a.iata), d = dep[a.iata] || 0, s = G.slot[a.iata] || 0;
-      return `<tr><td><b>${a.iata}</b> ${h(a.nome)} ${hub ? '<span class="badge b-warn">Hub</span>' : base ? '<span class="badge b-info">Base</span>' : ''}</td><td>${a.paese}</td><td class="num">${num(a.pop / 1000, 1)} M</td><td>${barretta(a.tur, null, [2, 2])}</td><td class="num">${eur(a.tassa)}</td><td class="num">${d || ''}</td>
+      return `<tr><td><b>${a.iata}</b> ${h(a.nome)} ${hub ? '<span class="badge b-warn">Hub</span>' : base ? '<span class="badge b-info">Base</span>' : ''}</td><td>${h(a.nomePaese)} <span class="muto piccolo">${fusoTxt(a.fuso)}</span></td><td class="num">${num(a.pop / 1000, 1)} M</td><td>${barretta(a.tur, null, [2, 2])}</td><td class="num">${eur(a.tassa)}</td><td class="num">${d || ''}</td>
       <td>${a.slot ? `<span class="${d > s ? 'neg' : ''}">${s} posseduti</span> <span class="muto piccolo">${eur(a.slotPrezzo)} l’uno</span>` : '<span class="muto">libero</span>'}</td>
       <td>${a.slot ? `<button class="piccolo" data-az="slot" data-i="${a.iata}" data-n="1">+1 slot</button> <button class="piccolo" data-az="slot" data-i="${a.iata}" data-n="4">+4</button> ` : ''}${base ? (hub ? '' : `<button class="piccolo" data-az="apri-hub" data-i="${a.iata}">Rendi hub</button> <button class="piccolo pericolo" data-az="chiudi-base" data-i="${a.iata}">Chiudi base</button>`) : `<button class="piccolo" data-az="apri-base" data-i="${a.iata}">Apri base (${mln(a.slot ? 500000 : 300000)})</button>`}</td></tr>`; }).join('')}
   </tbody></table></div><p class="nota">Nelle basi gli aerei possono passare la notte e lavorano gli equipaggi (costo ${eur(1200)}–${eur(2500)} al giorno). Un hub è una base dove vendi coincidenze tra i tuoi voli (${mln(D.HUB.costo)} + ${eur(D.HUB.giornaliero)} al giorno). Negli aeroporti regolati ogni partenza giornaliera richiede uno slot.</p></div>`;
@@ -818,7 +845,7 @@ VISTE.concorrenza = () => {
     <div class="riga"><span>Livello prezzi</span><span>${r.prezzo < 0.9 ? 'low cost' : r.prezzo > 1.1 ? 'premium' : 'nella media'} (${Math.round(r.prezzo * 100)}%)</span></div>
     <div class="riga"><span>Rotte</span><span>${Object.keys(r.rotte).length}</span></div>
     <p class="piccolo muto">${Object.entries(r.rotte).map(([k, x]) => `${k.replace('-', '–')}${x.guerraFino ? ' (sconti!)' : ''}`).join(' · ')}</p></div>`).join('')}</div>
-  <div class="pannello mt"><h2>Quote di mercato sulle tue rotte (domani)</h2><div class="tab-wrap">${mie.length ? `<table><thead><tr><th>Rotta</th><th>Tu</th><th>Concorrenti</th><th>Treno, auto, nave</th></tr></thead><tbody>
+  <div class="pannello mt"><h2>Quote di mercato sulle tue rotte (domani)</h2><div class="tab-wrap">${mie.length ? `<table><thead><tr><th>Rotta</th><th>Tu</th><th>Concorrenti</th><th>Altri mezzi e compagnie</th></tr></thead><tbody>
     ${mie.map(k => { const [a, b] = k.split('-'), f = Math.max(1, Math.round(freqRotta(k) / 2)), am = SIM.analisiMercato(G, a, b, domani, f, G.rotte[k].pY);
       return `<tr><td><b>${a}–${b}</b></td><td>${barretta(am.quota, null, [2, 2])}</td><td>${am.rivali.map(x => `<span class="pallino" style="background:${x.riv.colore}"></span>${h(x.riv.nome)} ${pct(x.quota)}`).join(' · ') || '<span class="muto">nessuno</span>'}</td><td>${pct(am.altri)}</td></tr>`; }).join('')}
   </tbody></table>` : '<p class="muto">Nessuna rotta in esercizio.</p>'}</div>
@@ -948,7 +975,7 @@ async function menuIniziale() {
   let salvati = [], classifica = [];
   salvati = await Archivio.lista(); classifica = await Archivio.classifica();
   const S = D.SCENARI[UI.scenarioSel];
-  const basi = Object.values(AP).filter(a => a.paese === 'IT').sort((a, b) => a.citta.localeCompare(b.citta));
+  const basi = perContinente();
   m.innerHTML = `<div class="menu-box">
     <h1><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${AEREO_PATH}"/></svg>AvioGest</h1>
     <p class="motto">Costruisci la tua compagnia aerea: rotte, cabine, prezzi per classe, basi e hub, equipaggi e concorrenti.</p>
@@ -960,7 +987,7 @@ async function menuIniziale() {
     <div class="pannello mt"><div class="form">
       <label class="campo">Nome della compagnia<input id="nNome" value="${UI.scenarioSel === 'crisi' ? 'Aliseo Airlines' : 'Volaria'}" maxlength="30"></label>
       <label class="campo">Codice volo (2 lettere)<input id="nCodice" value="${UI.scenarioSel === 'crisi' ? 'AL' : 'VL'}" maxlength="2"></label>
-      ${S.sceltaBase ? `<label class="campo">Base di partenza<select id="nBase">${opzioni(basi.map(a => [a.iata, `${a.citta} · ${a.iata}${a.slot ? ' (slot regolati)' : ''}`]), 'BRI')}</select><span class="aiuto">Una base in un aeroporto a slot dà 8 slot gratuiti.</span></label>` : `<p class="piccolo">Basi: ${S.base || 'Roma Fiumicino (hub) e Milano Malpensa'}</p>`}
+      ${S.sceltaBase ? `<label class="campo">Base di partenza<select id="nBase">${opzioniAeroporti(basi, S.mondo ? 'FCO' : 'BRI', a => a.slot ? ' (slot regolati)' : '')}</select><span class="aiuto">Una base in un aeroporto a slot dà 8 slot gratuiti.</span></label>` : `<p class="piccolo">Basi: ${S.base || 'Roma Fiumicino (hub) e Milano Malpensa'}</p>`}
       <div class="pieno"><button class="primario" data-az="nuova-partita">Decolla!</button></div></div></div>
     ${classifica.length ? `<h2>Classifica</h2><div class="pannello"><table><tbody>${classifica.slice(0, 10).map((x, i) => `<tr><td>${i + 1}</td><td>${h(x.nome)}</td><td>${h(D.SCENARI[x.scenario]?.nome || '')}</td><td class="num">${x.giorni} giorni</td><td class="num"><b>${num(x.punteggio)}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
     <p class="nota" style="color:#8ea0bb">Comandi: barra spaziatrice = pausa, tasti 1-2-3 = velocità. La partita si salva da sola ogni giorno di gioco.</p>
@@ -1099,7 +1126,7 @@ document.addEventListener('change', ev => {
     if (g.scali.length > 1) { conferma('Cambiare la base di partenza?', 'Le tratte di questo giorno verranno tolte.', 'Cambia', () => { g.scali = [el.value]; aggiornaEditor(); }); return; }
     g.scali = [el.value]; aggiornaEditor(); return;
   }
-  if (el.id === 'rDa' || el.id === 'rA') { if (el.id === 'rDa') { const a = el.value; $('#rA').innerHTML = opzioni([['', '— scegli —'], ...Object.values(AP).filter(x => x.iata !== a).sort((x, y) => x.citta.localeCompare(y.citta)).map(x => [x.iata, `${x.iata} · ${x.citta} (${x.paese})`])], ''); } infoRotta(); return; }
+  if (el.id === 'rDa' || el.id === 'rA') { if (el.id === 'rDa') { const a = el.value; $('#rA').innerHTML = '<option value="">— scegli —</option>' + opzioniAeroporti(perContinente().filter(x => x.iata !== a), ''); } infoRotta(); return; }
 });
 document.addEventListener('input', ev => {
   if (ev.target.id === 'aeroQ') { UI.aeroQ = ev.target.value; const pos = ev.target.selectionStart; render(); const i = $('#aeroQ'); i.focus(); i.setSelectionRange(pos, pos); }
