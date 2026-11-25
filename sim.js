@@ -5,7 +5,7 @@ const SIM = (() => {
   const D = typeof DATI !== 'undefined' ? DATI : require('./data.js');
   const AP = D.AEROPORTI, MOD = D.MODELLI, CLS = D.CLASSI;
   const CL = ['J', 'W', 'Y'];
-  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 4;
+  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 5;
   const GIORNI_SETT = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
   const FDP = 13 * 60, PERSONE_PER_TURNO = 2.4;
   const rnd = Math.random;
@@ -86,7 +86,7 @@ const SIM = (() => {
   const prezziRotta = (G, da, a) => { const r = G.rotte[chiave(da, a)]; if (r) return r; const k = km(da, a), ref = prezzoRif(k); return { pY: ref, pW: Math.round(ref * multClasse('W', k)), pJ: Math.round(ref * multClasse('J', k)) }; };
 
   /* ---------- Notizie, flotta ---------- */
-  function nuovoGiorno() { return { voli: 0, canc: 0, pax: 0, posti: 0, puntuali: 0, ricavi: 0, paxC: zero(), ricaviC: zero(), transito: 0, ricaviTransito: 0, costi: { carburante: 0, tasse: 0, handling: 0, navigazione: 0, manutenzione: 0, servizio: 0, rimborsi: 0, equipaggi: 0, marketing: 0, leasing: 0, personale: 0, basi: 0, hub: 0, sede: 0, interessi: 0, assicurazione: 0, altro: 0 }, rotte: {}, aerei: {}, hub: {} }; }
+  function nuovoGiorno() { return { voli: 0, canc: 0, pax: 0, posti: 0, puntuali: 0, ricavi: 0, paxC: zero(), ricaviC: zero(), transito: 0, ricaviTransito: 0, costi: { carburante: 0, tasse: 0, handling: 0, navigazione: 0, manutenzione: 0, servizio: 0, rimborsi: 0, equipaggi: 0, soste: 0, marketing: 0, leasing: 0, personale: 0, basi: 0, hub: 0, sede: 0, interessi: 0, assicurazione: 0, altro: 0 }, rotte: {}, aerei: {}, hub: {} }; }
   function notizia(G, testo, tipo = 'info', imp = false) {
     const n = { t: G.ora, testo, tipo, imp };
     G.notizie.unshift(n); if (G.notizie.length > 150) G.notizie.length = 150;
@@ -112,12 +112,9 @@ const SIM = (() => {
   // accetta anche un solo giorno (lo ripete per tutta la settimana)
   function normalizza(prog) {
     const giorni = prog.giorni.length === 1 ? GIORNI_SETT.map(() => prog.giorni[0]) : prog.giorni;
-    return { turn: prog.turn, giorni: giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice(0, Math.max(0, g.scali.length - 1)) })) };
+    return { turn: prog.turn, giorni: giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice(0, Math.max(0, g.scali.length - 1)), cambi: (g.cambi || []).slice(0, Math.max(0, g.scali.length - 1)) })) };
   }
 
-  /* ---------- Personale per base ---------- */
-  const squadraVuota = () => ({ CMD: {}, FO: {}, CC: 0, ADV: 0 });
-  const squadra = (G, b) => (G.personale[b] ||= squadraVuota());
 
   /* ---------- Rotazioni su più giorni (i voli possono passare la mezzanotte) ---------- */
   const LUNGO = 360, RIPOSO = 600, SOSTA = 360, FDP_LUNGO = 17 * 60;
@@ -130,44 +127,76 @@ const SIM = (() => {
     }
     return legs;
   }
-  // Turni di servizio su tutto il ciclo. Massimo 13 h (17 h con un pilota in più se c'è un volo di lungo raggio).
-  // Un nuovo equipaggio entra in una base; fuori base solo dopo un volo di lungo raggio o un riposo lungo (equipaggio in albergo).
+  // Turni di servizio su tutto il ciclo.
+  // Limiti: 13 h con 2 piloti, 15 h con un terzo pilota (rinforzo), 17 h se nel turno c'è un volo di lungo raggio (3 piloti).
+  // Un nuovo equipaggio sale in una base, oppure dove il giocatore mette "cambio equipaggio" (arriva da passeggero dalla sua base),
+  // oppure dopo un volo di lungo raggio. Dopo un riposo lungo fuori base lo stesso equipaggio riparte (notte in albergo).
+  const FDP_RINFORZO = 15 * 60;
   function pianoCiclo(G, ae, prog = ae.prog) {
     if (prog !== ae.prog && prog.giorni.length === 1) prog = normalizza(prog);
     const memo = JSON.stringify(prog) + '|' + G.basi.join(',');
     if (prog === ae.prog && ae._piano && ae._piano.k === memo) return ae._piano.p;
-    const n = prog.giorni.length, legs = [], E = [], turni = [], mappa = {};
-    prog.giorni.forEach((g, i) => legsGiorno(ae, g, prog.turn).forEach((l, k) => legs.push({ ...l, giorno: i, k, abs: i * 1440 + l.dep, absArr: i * 1440 + l.arr })));
+    const n = prog.giorni.length, legs = [], E = [], W = [], turni = [], mappa = {}, sforati = [], flag = {};
+    prog.giorni.forEach((g, i) => legsGiorno(ae, g, prog.turn).forEach((l, k) => legs.push({ ...l, giorno: i, k, abs: i * 1440 + l.dep, absArr: i * 1440 + l.arr, cambio: k > 0 && !!g.cambi?.[k] })));
     const L = legs.length, ciclo = n * 1440;
     const gap = j => j === 0 ? legs[0].abs + ciclo - legs[L - 1].absArr : legs[j].abs - legs[j - 1].absArr;
+    let sostaBase = 0;
     if (L) {
       let start = 0; for (let j = 1; j < L; j++) if (gap(j) > gap(start)) start = j;
       let cur = null;
-      const chiudi = () => { if (cur && cur.legs.length) { cur.termina = cur.legs.at(-1).a; cur.blocco = cur.legs.reduce((x, l) => x + l.dur, 0); turni.push(cur); } cur = null; };
+      const chiudi = () => { if (cur && cur.legs.length) { cur.idx = turni.length; cur.termina = cur.legs.at(-1).a; cur.blocco = cur.legs.reduce((x, l) => x + l.dur, 0); cur.piloti = (cur.lungo || cur.rinforzo) ? 3 : 2; turni.push(cur); } cur = null; };
+      const nuovo = (dep, extra = {}) => ({ inizio: dep - 60, legs: [], lungo: false, rinforzo: false, ...extra });
+      // voli nell'ordine del turno, con orari continui (senza salti di settimana)
+      const ord = Array.from({ length: L }, (_, q) => { const j = (start + q) % L, off = j < start ? ciclo : 0; return { j, arr: legs[j].absArr + off }; });
+      // arrivo del volo con cui l'aereo rientra in una base (o prima di un riposo lungo), partendo dal volo q
+      const rientro = q => { for (let r = q; r < L; r++) { const l = legs[ord[r].j]; if (G.basi.includes(l.a) || (r + 1 < L && gap(ord[r + 1].j) >= RIPOSO)) return ord[r].arr; } return ord[L - 1].arr; };
       for (let q = 0; q < L; q++) {
         const j = (start + q) % L, l = legs[j], off = j < start ? ciclo : 0, dep = l.abs + off, arr = l.absArr + off, g = gap(j), lungo = l.dur >= LUNGO;
         if (cur) {
-          const prec = legs[(j - 1 + L) % L], fdp = (cur.lungo || lungo) ? FDP_LUNGO : FDP;
-          if (g >= RIPOSO || arr + 30 - cur.inizio > fdp) {
-            if (G.basi.includes(l.da)) chiudi();
-            else if (g >= RIPOSO || prec.dur >= LUNGO) { const b = cur.base; chiudi(); cur = { base: b, albergo: true, inizio: dep - 60, legs: [], lungo: false }; }
-            else E.push(`il turno partito da ${cur.legs[0].da} supera le ${fdp / 60} ore prima di ${l.da}–${l.a}: serve uno scalo in una base per cambiare equipaggio`);
+          const prec = legs[(j - 1 + L) % L], limite = (cur.lungo || lungo) ? FDP_LUNGO : FDP_RINFORZO, sfora = arr + 30 - cur.inizio > limite;
+          // in una base si cambia equipaggio se, continuando, il prossimo rientro in base cadrebbe oltre le 13 ore:
+          // il terzo pilota serve solo quando lungo il percorso una base non c'è
+          const cambioInBase = !cur.lungo && !lungo && G.basi.includes(l.da) && rientro(q) + 30 - cur.inizio > FDP;
+          if (l.cambio || g >= RIPOSO || sfora || cambioInBase) {
+            const b = cur.base;
+            if (G.basi.includes(l.da)) { chiudi(); cur = nuovo(dep, { base: l.da }); }
+            else if (g >= RIPOSO && !l.cambio) { chiudi(); cur = nuovo(dep, { base: b, continua: true, albergo: true }); }
+            else if (l.cambio || prec.dur >= LUNGO) { chiudi(); cur = nuovo(dep, { base: b, posizionato: true, albergo: true }); }
+            else { E.push(`il turno partito da ${cur.legs[0].da} supera le ${limite / 60} ore prima di ${l.da}–${l.a}: metti un cambio equipaggio su un volo (anche fuori base) o usa “Sistema i turni”`); sforati.push({ giorno: l.giorno, k: l.k }); }
           }
         }
-        if (!cur) {
-          cur = { base: G.basi.includes(l.da) ? l.da : null, inizio: dep - 60, legs: [], lungo: false };
-          if (!cur.base) E.push(`un turno parte da ${l.da}, dove non hai equipaggi: deve iniziare in una base`);
-        }
+        if (!cur) { cur = nuovo(dep, { base: G.basi.includes(l.da) ? l.da : null }); if (!cur.base) E.push(`un turno parte da ${l.da}, dove non hai equipaggi: deve iniziare in una base`); }
         cur.legs.push(l); cur.lungo ||= lungo; cur.fine = arr + 30;
+        if (!cur.lungo && cur.fine - cur.inizio > FDP) cur.rinforzo = true;
         mappa[`${l.giorno}-${l.k}`] = cur;
       }
       chiudi();
-      for (let j = 0; j < L; j++) { const g = gap(j); if (g >= SOSTA && !G.basi.includes(legs[j].da)) E.push(`l’aereo resta fermo ${Math.floor(g / 60)} ore a ${legs[j].da}, che non è una base: notti e soste lunghe si fanno solo nelle basi`); }
+      for (let j = 0; j < L; j++) {
+        const g = gap(j), dove = legs[j].da;
+        if (G.basi.includes(dove)) sostaBase = Math.max(sostaBase, g);
+        else if (g >= SOSTA) { const p = legs[(j - 1 + L) % L]; flag[`${p.giorno}-${p.k}`] = { sostaFuori: true }; W.push(`l’aereo resta fermo ${Math.floor(g / 60)} ore a ${dove}, fuori base: si pagano parcheggio e albergo dell’equipaggio`); }
+      }
+      const rinf = turni.filter(t => t.rinforzo && !t.lungo).length;
+      if (rinf) W.push(`${rinf} turni superano le 13 ore: volano con un terzo pilota (equipaggio rinforzato)`);
     }
     let sostaMax = 0; for (let j = 0; j < L; j++) sostaMax = Math.max(sostaMax, gap(j));
-    const p = { legs, turni, mappa, E: [...new Set(E)], sostaMax: L ? sostaMax : 1440 };
+    const p = { legs, turni, mappa, flag, sforati, E: [...new Set(E)], W: [...new Set(W)], sostaMax: L ? sostaMax : 1440, sostaBase: L ? sostaBase : 1440 };
     if (prog === ae.prog) ae._piano = { k: memo, p };
     return p;
+  }
+  // Inserisce i cambi equipaggio dove un turno sfora, finché il piano è valido
+  function sistemaTurni(G, ae, prog) {
+    prog = normalizza(prog);
+    for (let it = 0; it < 30; it++) {
+      const p = pianoCiclo(G, ae, prog); if (!p.sforati.length) break;
+      // dove possibile il cambio si fa in una base, qualche volo prima: nessun equipaggio da far arrivare da passeggero
+      let { giorno, k } = p.sforati[0];
+      const turno = p.mappa[`${giorno}-${k}`];
+      if (turno) for (let q = turno.legs.length - 1; q > 0; q--) { const l = turno.legs[q]; if (l.giorno === giorno && l.k <= k && G.basi.includes(l.da)) { k = l.k; break; } }
+      const g = prog.giorni[giorno];
+      g.cambi = Array.from({ length: g.scali.length - 1 }, (_, i) => !!g.cambi?.[i]); g.cambi[k] = true;
+    }
+    return prog;
   }
   const indiceCiclo = (prog, giorno) => { const n = prog.giorni.length; if (prog.ancora == null && n === 7) return giornoSett(giorno); return ((Math.round((giorno - (prog.ancora ?? 0)) / GIORNO) % n) + n) % n; };
   const giornoDelCiclo = (ae, giorno) => ae.prog.giorni[indiceCiclo(ae.prog, giorno)];
@@ -218,10 +247,13 @@ const SIM = (() => {
     });
     const piano = pianoCiclo(G, ae, prog);
     piano.E.forEach(e => E.push(e));
+    piano.W.forEach(w => W.push(w));
     if (!piano.legs.length && !G.basi.includes(prog.giorni[0].scali[0])) E.push(`L’aereo è fermo a ${prog.giorni[0].scali[0]}, che non è una base`);
-    if (piano.legs.length && piano.sostaMax < 8 * 60) W.push(`La sosta più lunga è di ${Math.floor(piano.sostaMax / 60)} ore: le ispezioni (8 h) cancelleranno qualche volo`);
+    if (piano.legs.length && piano.sostaBase < 8 * 60) W.push(`L’aereo non sosta mai 8 ore in una base: le ispezioni lo fermeranno cancellando qualche volo`);
     const fuori = piano.turni.filter(t => t.termina !== t.base);
     if (fuori.length) W.push(`${fuori.length} turni finiscono lontano dalla base dell’equipaggio: rientro o albergo a pagamento (circa 150 € a persona)`);
+    const pos = piano.turni.filter(t => t.posizionato).length;
+    if (pos) W.push(`${pos} turni iniziano fuori base: l’equipaggio arriva da passeggero (circa 250 € a persona)`);
     const dep = partenzePerScalo(G, { id: ae.id, prog });
     for (const [i, c] of Object.entries(dep)) if (AP[i].slot && c > (G.slot[i] || 0)) E.push(`${i} è un aeroporto a slot: servono ${c} slot giornalieri, ne hai ${G.slot[i] || 0}`);
     const giorni = prog.giorni.map((g, i) => ({ legs: legsGiorno(ae, g, prog.turn), turni: piano.turni.filter(t => t.legs[0].giorno === i) }));
@@ -232,7 +264,8 @@ const SIM = (() => {
     if (v.E.length) return v;
     ae.prog = normalizza(prog);
     ae.base = prog.giorni[0].scali[0]; delete ae._piano;
-    rigeneraAereo(G, ae); G._fab = null;
+    for (const k in (G.fissi || {})) if (k.startsWith(ae.id + '#')) delete G.fissi[k];
+    G._roster = null; rigeneraAereo(G, ae);
     return v;
   }
 
@@ -248,8 +281,8 @@ const SIM = (() => {
     const i = indiceCiclo(ae.prog, giorno), piano = pianoCiclo(G, ae);
     legsGiorno(ae, ae.prog.giorni[i], ae.prog.turn).forEach((l, k) => {
       const dep = tsDi(giorno, l.dep); if (dep <= G.ora) return;
-      const t = piano.mappa[`${i}-${k}`] || { base: null, legs: [] }, ultimo = t.legs.at(-1), fine = ultimo && ultimo.giorno === i && ultimo.k === k;
-      const v = { id: G.seq++, ae: ae.id, num: numeroVolo(G, l.da, l.a, l.dep % 1440), da: l.da, a: l.a, dep, arr: tsDi(giorno, l.arr), v: zero(), t: zero(), inc: zero(), incT: 0, att: zero(), conn: {}, stato: 'prog', rit: 0, base: t.base, fineTurno: !!fine && t.termina !== t.base };
+      const t = piano.mappa[`${i}-${k}`] || { base: null, legs: [] }, ultimo = t.legs.at(-1), fine = ultimo && ultimo.giorno === i && ultimo.k === k, primo = t.legs[0] && t.legs[0].giorno === i && t.legs[0].k === k;
+      const v = { id: G.seq++, ae: ae.id, num: numeroVolo(G, l.da, l.a, l.dep % 1440), da: l.da, a: l.a, dep, arr: tsDi(giorno, l.arr), v: zero(), t: zero(), inc: zero(), incT: 0, att: zero(), conn: {}, stato: 'prog', rit: 0, base: t.base, turno: `${ae.id}#${t.idx}`, piloti: t.piloti || 2, fineTurno: !!fine && t.termina !== t.base, posizionato: !!primo && !!t.posizionato, sostaFuori: !!piano.flag[`${i}-${k}`]?.sostaFuori };
       const old = vecchi && vecchi.get(`${l.da}${l.a}${dep}`);
       if (old) Object.assign(v, { v: old.v, t: old.t, inc: old.inc, incT: old.incT, conn: old.conn });
       G.voli.push(v);
@@ -265,43 +298,83 @@ const SIM = (() => {
   }
   const venduti = v => somma(v.v) + somma(v.t);
 
-  /* ---------- Fabbisogno e copertura del personale (per base) ---------- */
-  function fabbisogno(G) {
-    const f = {};
+  /* ---------- Equipaggi con nome e assegnazione settimanale dei turni ---------- */
+  const COGNOMI = ['Rossi', 'Bianchi', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno', 'Gallo', 'Conti', 'De Luca', 'Costa', 'Giordano', 'Mancini', 'Rizzo', 'Lombardi', 'Moretti', 'Barbieri', 'Fontana', 'Santoro', 'Mariani', 'Rinaldi', 'Caruso', 'Ferrara', 'Galli', 'Martini', 'Leone', 'Longo', 'Gentile', 'Vitale', 'Serra', 'Coppola', 'De Santis', 'Fabbri', 'Bellini', 'Ferri', 'Villa', 'Parisi', 'Cattaneo', 'Smith', 'Müller', 'García', 'Dubois', 'Novak', 'Kowalski', 'Silva', 'Jensen', 'Papadopoulos', 'Hansen', 'Okafor', 'Tanaka', 'Haddad'];
+  const SETT = 7 * 1440, RIPOSO_MIN = 12 * 60, MAX_TURNI = 4, MAX_ORE = 28;
+  const pagaEquipaggio = e => D.RUOLI.CMD.paga + D.RUOLI.FO.paga * (e.piloti - 1) + D.RUOLI.CC.paga + D.RUOLI.ADV.paga * (e.cabina - 1);
+  const persone = e => e.piloti + e.cabina;
+  const costoAssunzione = (e, urgente) => Math.round((12000 * e.piloti + 1500 * e.cabina) * (urgente ? 2.5 : 1));
+  function nuovoEquipaggio(G, { base, tipo, piloti = 2, cabina = 4, stato = 'attivo', pronto = 0, motivo = '' }) {
+    G.seqEq ||= {}; const n = G.seqEq[base] = (G.seqEq[base] || 0) + 1;
+    const e = { id: 'e' + (G.seq++), nome: `${base}-${n}`, base, tipo, piloti, cabina, capo: COGNOMI[Math.floor(rnd() * COGNOMI.length)], stato, pronto, motivo };
+    G.equipaggi.push(e); G._roster = null; return e;
+  }
+  // Turni della settimana raggruppati in catene: un turno che continua dopo una notte fuori base resta allo stesso equipaggio
+  function catene(G, sost) {
+    const out = [];
     for (const ae of flottaAttiva(G)) {
-      if (ae.stato === 'consegna') continue;
-      const n = ae.prog.giorni.length, tipo = MOD[ae.modello].tipo, cm = cabMin(ae);
-      for (const t of pianoCiclo(G, ae).turni) {
-        if (!t.base) continue;
-        // un turno di lungo raggio porta un pilota in più e richiede più giorni di riposo dopo
-        const w = (t.lungo ? 1.6 : 1) / n, b = (f[t.base] ||= { CMD: {}, FO: {}, CC: 0, ADV: 0, turni: 0 });
-        b.CMD[tipo] = (b.CMD[tipo] || 0) + w; b.FO[tipo] = (b.FO[tipo] || 0) + w * (t.lungo ? 2 : 1); b.CC += w; b.ADV += w * (cm - 1); b.turni += 1 / n;
+      const prog = sost && sost.id === ae.id ? sost.prog : ae.prog;
+      if (ae.stato === 'consegna' && !(sost && sost.id === ae.id)) continue;
+      const p = pianoCiclo(G, ae, prog), tipo = MOD[ae.modello].tipo, cab = cabMin(ae);
+      let cur = null;
+      for (const t of p.turni) {
+        const k = `${ae.id}#${t.idx}`;
+        if (t.continua && cur) { cur.chiavi.push(k); cur.fine = t.fine; cur.blocco += t.blocco; cur.piloti = Math.max(cur.piloti, t.piloti); cur.a = t.termina; cur.voli += t.legs.length; cur.percorso.push(...t.legs.map(l => l.a)); continue; }
+        cur = { chiave: k, chiavi: [k], ae: ae.id, marche: ae.marche, tipo, base: t.base, piloti: t.piloti, cabina: cab, inizio: t.inizio, fine: t.fine, blocco: t.blocco, da: t.legs[0].da, a: t.termina, percorso: [t.legs[0].da, ...t.legs.map(l => l.a)], voli: t.legs.length, giorno: t.legs[0].giorno, posizionato: !!t.posizionato };
+        out.push(cur);
       }
     }
-    for (const b of Object.values(f)) {
-      for (const r of ['CMD', 'FO']) for (const t in b[r]) b[r][t] = Math.ceil(b[r][t] * PERSONE_PER_TURNO - 1e-9);
-      b.CC = Math.ceil(b.CC * PERSONE_PER_TURNO - 1e-9); b.ADV = Math.ceil(b.ADV * PERSONE_PER_TURNO - 1e-9);
+    return out;
+  }
+  function compatibile(int, a, b) {
+    for (const [x, y] of int) { const d1 = ((a - y) % SETT + SETT) % SETT, d2 = ((x - b) % SETT + SETT) % SETT; if (d1 < RIPOSO_MIN || d2 < RIPOSO_MIN) return false; }
+    return true;
+  }
+  const adatto = (e, c) => e.base === c.base && e.tipo === c.tipo && e.piloti >= c.piloti && e.cabina >= c.cabina;
+  // Assegna gli equipaggi alle catene di turni: stessa base e abilitazione, riposo minimo 12 h, al massimo 4 turni e 28 ore di volo a settimana
+  function roster(G, opz = {}) {
+    const semplice = !opz.sost && !opz.extra && !opz.futuri;
+    if (semplice && G._roster) return G._roster;
+    const ch = catene(G, opz.sost).sort((x, y) => (x.inizio % SETT) - (y.inizio % SETT));
+    const crews = G.equipaggi.filter(e => e.stato === 'attivo' || (opz.futuri && e.stato === 'formazione')).concat(opz.extra || []);
+    const carico = new Map(crews.map(e => [e.id, { int: [], turni: 0, min: 0, catene: [] }]));
+    const libero = (e, c) => { const x = carico.get(e.id); return x.turni < MAX_TURNI && x.min + c.blocco <= MAX_ORE * 60 && compatibile(x.int, c.inizio, c.fine); };
+    const assegna = {}, scoperte = [];
+    // prima i turni bloccati a mano, poi gli altri in ordine di orario
+    const fissi = G.fissi || {}, ordine = [...ch.filter(c => fissi[c.chiave]), ...ch.filter(c => !fissi[c.chiave])];
+    for (const c of ordine) {
+      let scelto = null; const f = fissi[c.chiave] && crews.find(e => e.id === fissi[c.chiave]);
+      if (f && adatto(f, c) && libero(f, c)) scelto = f;
+      else for (const e of crews) if (adatto(e, c) && libero(e, c) && (!scelto || carico.get(e.id).min < carico.get(scelto.id).min || (carico.get(e.id).min === carico.get(scelto.id).min && persone(e) < persone(scelto)))) scelto = e;
+      if (scelto) { const x = carico.get(scelto.id); x.int.push([c.inizio, c.fine]); x.turni++; x.min += c.blocco; x.catene.push(c); c.eq = scelto.id; for (const k of c.chiavi) assegna[k] = scelto.id; }
+      else { c.eq = null; c.perche = !c.base ? 'il turno non parte da una base' : crews.some(e => adatto(e, c)) ? 'tutti gli equipaggi adatti sono già impegnati o a riposo' : `nessun equipaggio ${c.tipo} con ${c.piloti} piloti e ${c.cabina} in cabina a ${c.base}`; scoperte.push(c); }
     }
-    return f;
+    const r = { catene: ch, assegna, scoperte, carico };
+    if (semplice) G._roster = r;
+    return r;
+  }
+  // Equipaggi che servirebbero per coprire tutti i turni (contando anche quelli già in arrivo)
+  function pianoAssunzioni(G) {
+    const extra = [];
+    for (let it = 0; it < 120; it++) {
+      const c = roster(G, { futuri: true, extra }).scoperte.find(x => x.base);
+      if (!c) break;
+      extra.push({ id: 'x' + it, base: c.base, tipo: c.tipo, piloti: c.piloti, cabina: c.cabina, stato: 'attivo' });
+    }
+    return extra;
   }
   function copertura(G) {
-    if (G._fab && G._fabOra === G.ora) return G._fab;
-    const f = fabbisogno(G), c = { f, basi: {}, min: 9 };
-    for (const [b, need] of Object.entries(f)) {
-      const P = squadra(G, b), x = { tipi: {}, cabina: 1 };
-      for (const t in need.CMD) x.tipi[t] = Math.min((P.CMD[t] || 0) / need.CMD[t], (P.FO[t] || 0) / need.FO[t]);
-      x.cabina = Math.min(need.CC ? P.CC / need.CC : 1, need.ADV ? P.ADV / need.ADV : 1);
-      x.min = Math.min(x.cabina, ...Object.values(x.tipi), 9);
-      c.basi[b] = x; c.min = Math.min(c.min, x.min);
-    }
-    G._fab = c; G._fabOra = G.ora;
-    return c;
+    const r = roster(G), basi = {};
+    let t = 0, k = 0;
+    for (const c of r.catene) { const x = (basi[c.base || '—'] ||= { turni: 0, coperti: 0 }); x.turni++; t++; if (c.eq) { x.coperti++; k++; } }
+    for (const x of Object.values(basi)) x.min = x.turni ? x.coperti / x.turni : 1;
+    let ore = 0, n = 0; for (const [id, x] of r.carico) { if (x.turni) { ore += x.min / 60; n++; } }
+    return { basi, min: t ? k / t : 1, turni: t, scoperte: r.scoperte.length, oreMedie: n ? ore / n : 0 };
   }
-  function totPersonale(G) {
-    let n = 0;
-    for (const P of Object.values(G.personale)) { n += P.CC + P.ADV; for (const r of ['CMD', 'FO']) for (const t in P[r]) n += P[r][t]; }
-    return n;
-  }
+  const totPersonale = G => G.equipaggi.reduce((x, e) => x + persone(e), 0);
+  const equipaggioDi = (G, v) => G.equipaggi.find(e => e.id === (v.eqId || roster(G).assegna[v.turno]));
+  // vecchio formato (personale contato per base): serve solo alle migrazioni
+  const squadra = (G, b) => ((G.personale ||= {})[b] ||= { CMD: {}, FO: {}, CC: 0, ADV: 0 });
 
   /* ---------- Domanda e vendite ---------- */
   function domandaBase(G, da, a, giorno) {
@@ -488,12 +561,11 @@ const SIM = (() => {
     else if (ae.oreDaCheck > 700) motivo = 'Ispezione scaduta: aereo fermo per legge';
     else if (ae.pos !== v.da) motivo = `Aereo non presente a ${v.da}`;
     else {
-      const usura = ae.oreDaCheck / 600, tipo = MOD[ae.modello].tipo, cb = copertura(G).basi[v.base];
-      const deficit = cb ? Math.max(0, 1 - Math.min(cb.tipi[tipo] ?? 0, cb.cabina)) : 1;
+      const usura = ae.oreDaCheck / 600, eq = equipaggioDi(G, v);
       const paese = AP[v.da].paese === 'IT' || AP[v.a].paese === 'IT', meteo = eventoAttivo(G, 'meteo', v.dep, [v.da, v.a]);
       if (paese && eventoAttivo(G, 'sciopero-atc', v.dep) && rnd() < 0.6) { motivo = 'Sciopero dei controllori di volo'; straord = true; }
       else if (eventoAttivo(G, 'sciopero', v.dep) && rnd() < 0.45) motivo = 'Sciopero del personale';
-      else if (deficit > 0.1 && rnd() < (deficit - 0.1) * 1.5) motivo = `Equipaggio della base ${v.base} non disponibile`;
+      else if (!eq) motivo = 'Nessun equipaggio assegnato al turno';
       else if (meteo && meteo.forza >= 2 && rnd() < 0.2) { motivo = meteo.testo; straord = true; }
       else if (rnd() < 0.0025 * (1 + ae.eta / 12) * (usura > 0.85 ? 1 + (usura - 0.85) * 25 : 1)) {
         const costo = Math.round((15000 + rnd() * 50000) * MOD[ae.modello].peso / 70), ore = Math.round(6 + rnd() * 40);
@@ -508,7 +580,7 @@ const SIM = (() => {
         v.rit = Math.round(Math.max(prop, own));
         v.depEff = v.dep + v.rit * MIN; v.arrEff = v.arr + v.rit * MIN + Math.round((rnd() - 0.5) * 10) * MIN;
         v.stato = v.rit > 0 ? 'rit' : 'volo';
-        ae.arrPrevista = v.arrEff; ae.pos = v.a; ae.inVolo = v.id;
+        ae.arrPrevista = v.arrEff; ae.pos = v.a; ae.inVolo = v.id; v.eqId = eq.id; v.equip = eq.nome;
         return;
       }
     }
@@ -534,7 +606,8 @@ const SIM = (() => {
       manutenzione: Math.round(m.manut * h * (1 + ae.eta * 0.03)),
       servizio: Math.round((pax * D.SERVIZIO[G.servizio].costo + (v.v.J + v.t.J) * 12 + (v.v.W + v.t.W) * 4) * Math.max(1, h / 2)),
       rimborsi: v.rit >= 180 ? Math.round(pax * (k < 1500 ? 250 : 400) * 0.5) : 0,
-      equipaggi: v.fineTurno ? (2 + cabMin(ae)) * 150 : 0
+      equipaggi: (v.fineTurno ? (v.piloti + cabMin(ae)) * 150 : 0) + (v.posizionato ? (v.piloti + cabMin(ae)) * 250 : 0),
+      soste: v.sostaFuori ? Math.round(m.peso * 15) : 0
     };
     const costi = Object.values(c).reduce((s, x) => s + x, 0), ricaviC = {}; let ricavi = 0;
     for (const x of CL) { ricaviC[x] = Math.round(v.inc[x]); ricavi += ricaviC[x]; }
@@ -558,7 +631,7 @@ const SIM = (() => {
   }
   function registra(G, v, x) {
     const ae = G.aerei.find(a => a.id === v.ae);
-    G.registro.unshift({ id: v.id, num: v.num, da: v.da, a: v.a, dep: v.dep, depEff: v.depEff, arrEff: v.arrEff, arr: v.arr, rit: v.rit, stato: v.stato, motivo: v.motivo, marche: ae?.marche, base: v.base, posti: ae ? posti(ae) : 0, cab: ae ? { ...ae.cab } : zero(), paxC: { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y }, transito: somma(v.t), ricaviTransito: Math.round(v.incT), ...x });
+    G.registro.unshift({ equip: v.equip, id: v.id, num: v.num, da: v.da, a: v.a, dep: v.dep, depEff: v.depEff, arrEff: v.arrEff, arr: v.arr, rit: v.rit, stato: v.stato, motivo: v.motivo, marche: ae?.marche, base: v.base, posti: ae ? posti(ae) : 0, cab: ae ? { ...ae.cab } : zero(), paxC: { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y }, transito: somma(v.t), ricaviTransito: Math.round(v.incT), ...x });
     if (G.registro.length > 600) G.registro.length = 600;
   }
   function processaVoli(G) {
@@ -578,12 +651,12 @@ const SIM = (() => {
         if (ae.stato === 'manutenzione' && G.ora >= L.fine) {
           ae.stato = 'attivo'; G.cassa -= L.costo; G.oggi.costi.manutenzione += L.costo; ae.lavori = null;
           if (L.tipo === 'check') { ae.oreDaCheck = 0; notizia(G, `${ae.marche}: ispezione completata (${eur(L.costo)}).`, 'info'); }
-          else { ae.cab = L.cab; G._fab = null; rigeneraAereo(G, ae); notizia(G, `${ae.marche}: nuova cabina pronta (${L.cab.J} Business · ${L.cab.W} Premium · ${L.cab.Y} Economy).`, 'buona'); }
+          else { ae.cab = L.cab; G._roster = null; rigeneraAereo(G, ae); notizia(G, `${ae.marche}: nuova cabina pronta (${L.cab.J} Business · ${L.cab.W} Premium · ${L.cab.Y} Economy).`, 'buona'); }
         }
       }
       if (ae.stato === 'guasto' && G.ora >= ae.fino) { ae.stato = 'attivo'; notizia(G, `${ae.marche} è di nuovo operativo.`, 'buona'); }
       if (ae.stato === 'consegna' && G.ora >= ae.fino) {
-        ae.stato = 'attivo'; ae.pos = ae.prog.giorni[indiceCiclo(ae.prog, mezzanotte(G.ora))].scali[0]; G._fab = null;
+        ae.stato = 'attivo'; ae.pos = ae.prog.giorni[indiceCiclo(ae.prog, mezzanotte(G.ora))].scali[0]; G._roster = null;
         notizia(G, `Consegnato ${MOD[ae.modello].nome} ${ae.marche} a ${ae.base} (${ae.cab.J}J · ${ae.cab.W}W · ${ae.cab.Y}Y). Assegnagli una rotazione!`, 'buona', true);
         rigeneraAereo(G, ae); controllaTraguardi(G);
       }
@@ -617,12 +690,10 @@ const SIM = (() => {
     vendite(G);
     G.eventi = G.eventi.filter(e => e.fine > G.ora);
     const ora = loc(G.ora).getUTCHours();
-    for (const f of G.formazione) if (!f.fatto && G.ora >= f.fine) {
-      f.fatto = true; const P = squadra(G, f.base);
-      if (f.ruolo === 'CC' || f.ruolo === 'ADV') P[f.ruolo] += f.n; else P[f.ruolo][f.tipo] = (P[f.ruolo][f.tipo] || 0) + f.n;
-      notizia(G, `${f.base}: ${f.n} ${D.RUOLI[f.ruolo].nome.toLowerCase()}${f.tipo ? ' ' + f.tipo : ''} ${f.riq ? 'hanno finito la riqualifica' : f.trasf ? 'trasferiti e operativi' : 'hanno preso servizio'}.`, 'buona'); G._fab = null;
+    for (const e of G.equipaggi) if (e.stato === 'formazione' && G.ora >= e.pronto) {
+      e.stato = 'attivo'; G._roster = null;
+      notizia(G, `Equipaggio ${e.nome} (cpt. ${e.capo}, ${e.tipo}) operativo a ${e.base}${e.motivo ? ': ' + e.motivo : ''}.`, 'buona');
     }
-    G.formazione = G.formazione.filter(f => !f.fatto);
     if (ora === 18) for (const ae of G.aerei) if (ae.autoCheck && !ae.lavori && ae.stato === 'attivo' && ae.oreDaCheck > 500) pianificaCheck(G, ae.id);
     if (ora === 3) for (const ae of G.aerei) {
       if (ae.stato === 'venduto' || ae.stato === 'consegna' || ae.inVolo) continue;
@@ -644,10 +715,7 @@ const SIM = (() => {
       if (ae.modo === 'leasing' && ae.stato !== 'consegna') c.leasing += ae.leasing;
       if (ae.modo === 'proprieta') c.assicurazione += ae.valore * 0.00003;
     }
-    let pag = 0;
-    for (const P of Object.values(G.personale)) { pag += P.CC * D.RUOLI.CC.paga + P.ADV * D.RUOLI.ADV.paga; for (const r of ['CMD', 'FO']) for (const t in P[r]) pag += P[r][t] * D.RUOLI[r].paga; }
-    for (const f of G.formazione) pag += f.n * D.RUOLI[f.ruolo].paga;
-    c.personale = pag * G.stipendio;
+    c.personale = G.equipaggi.reduce((x, e) => x + pagaEquipaggio(e), 0) * G.stipendio;
     for (const b of G.basi) c.basi += AP[b].slot ? 2500 : 1200;
     c.hub = G.hub.length * D.HUB.giornaliero;
     c.sede = 1000 + 300 * flottaAttiva(G).length;
@@ -676,7 +744,8 @@ const SIM = (() => {
       G.reputazione = clamp(G.reputazione + (target - G.reputazione) * 0.06, 0, 100);
     }
     const cop = copertura(G);
-    const tm = clamp(60 + (G.stipendio - 1) * 160 - (cop.min < 1 ? 15 : 0) - (cop.min < 0.9 ? 15 : 0), 0, 100);
+    G._roster = null;
+    const tm = clamp(60 + (G.stipendio - 1) * 160 - (cop.min < 1 ? 10 : 0) - (cop.oreMedie > 24 ? 12 : 0) - (cop.oreMedie > 27 ? 10 : 0), 0, 100);
     G.morale = clamp(G.morale + (tm - G.morale) * 0.05, 0, 100);
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
@@ -725,7 +794,7 @@ const SIM = (() => {
     if (rnd() < 0.008) { G.carburante *= 0.88; notizia(G, 'Il prezzo del cherosene scende del 12%.', 'buona'); }
     if (G.aerei.length && rnd() < 0.012) {
       const cop = copertura(G), scaduti = G.aerei.some(a => a.oreDaCheck > 650);
-      if (scaduti || cop.min < 0.9) { G.cassa -= 150000; G.oggi.costi.altro += 150000; G.reputazione = Math.max(0, G.reputazione - 3); notizia(G, `Ispezione dell’autorità aeronautica: ${scaduti ? 'aerei con ispezioni in scadenza' : 'equipaggi sotto organico'}. Multa di 150.000 €.`, 'cattiva', true); }
+      if (scaduti || cop.min < 0.9) { G.cassa -= 150000; G.oggi.costi.altro += 150000; G.reputazione = Math.max(0, G.reputazione - 3); notizia(G, `Ispezione dell’autorità aeronautica: ${scaduti ? 'aerei con ispezioni in scadenza' : 'turni senza equipaggio'}. Multa di 150.000 €.`, 'cattiva', true); }
       else { G.reputazione = Math.min(100, G.reputazione + 1); notizia(G, 'Ispezione dell’autorità aeronautica superata senza rilievi.', 'buona'); }
     }
   }
@@ -832,7 +901,7 @@ const SIM = (() => {
     const G = {
       v: VERSIONE, id: 'p' + Date.now().toString(36), scenario: scenId, nome: nome || 'Nuova Compagnia', codice: (codice || 'NC').toUpperCase().slice(0, 2),
       fuso: FUSO, inizio, ora: inizio, cassa: S.cassa || 0, debiti: [], reputazione: 50, morale: 65, stipendio: 1, servizio: 'standard', carburante: 0.8,
-      basi: [], hub: [], slot: {}, aerei: [], rotte: {}, personale: {}, formazione: [], voli: [], registro: [], storico: [], oggi: nuovoGiorno(),
+      basi: [], hub: [], slot: {}, aerei: [], rotte: {}, equipaggi: [], fissi: {}, seqEq: {}, voli: [], registro: [], storico: [], oggi: nuovoGiorno(),
       notizie: [], eventi: [], rivali: D.RIVALI.map(r => ({ id: r.id, nome: r.nome, colore: r.colore, hub: r.hub, rep: r.rep, prezzo: r.prezzo, rotte: Object.fromEntries(Object.entries(r.rotte).map(([k, f]) => [k, { freq: f, prezzo: r.prezzo }])) })),
       traguardi: {}, stat: { pax: 0, voli: 0, utile: 0 }, mercato: [], numeri: {}, campagne: [], seq: 1, seqMarche: 0, seqVolo: 101, fallimento: 0, esito: null, genFino: 0, giorniUtile: 0
     };
@@ -841,7 +910,7 @@ const SIM = (() => {
       const b = b0;
       G.basi.push(b); if (AP[b].slot) G.slot[b] = (S.slot && S.slot[b]) || 8;
       for (const [mod, modo] of S.flotta) aggiungiAereo(G, mod, modo, b);
-      G.personale[b] = JSON.parse(JSON.stringify(S.personale));
+      for (const [tipo, n, piloti, cabina] of S.equipaggi) for (let q = 0; q < n; q++) nuovoEquipaggio(G, { base: b, tipo, piloti, cabina });
       if (S.slot) Object.assign(G.slot, S.slot);
     }
     aggiornaMercato(G);
@@ -873,7 +942,9 @@ const SIM = (() => {
     }
     G.aerei[6].autoCheck = false; G.aerei[6].oreDaCheck = 640;
     for (const [i, n] of Object.entries(partenzePerScalo(G))) if (AP[i].slot) G.slot[i] = n + 1;
-    for (const [b, need] of Object.entries(fabbisogno(G))) G.personale[b] = { CMD: { ...need.CMD }, FO: { ...need.FO }, CC: need.CC, ADV: need.ADV };
+    G.equipaggi = []; G.fissi = {};
+    for (const x of pianoAssunzioni(G)) nuovoEquipaggio(G, x);
+    for (const b of G.basi) nuovoEquipaggio(G, { base: b, tipo: 'A320', piloti: 2, cabina: 4 }); // una riserva per base
     G.debiti.push({ id: 'd' + (G.seq++), capitale: 30e6, tasso: 0.085, rata: Math.round(30e6 / (8 * 365)) });
   }
   // Converte i salvataggi della versione 1 (una giornata per aereo, cabine a due classi, personale unico)
@@ -884,14 +955,15 @@ const SIM = (() => {
     if (G.v >= VERSIONE) return G;
     if (!G.v || G.v < 2) migraV2(G);
     if (G.v < 3) migraV3(G);
-    return migraV4(G);
+    if (G.v < 4) migraV4(G);
+    return migraV5(G);
   }
   function migraV2(G) {
     const oggi = mezzanotte(G.ora), b0 = G.basi[0], vecchio = G.personale || {};
     G.hub ||= []; G.numeri ||= {}; G.seqVolo = Math.max(G.seqVolo || 0, 101);
     G.personale = { [b0]: { CMD: vecchio.CMD || {}, FO: vecchio.FO || {}, CC: vecchio.CC || 0, ADV: vecchio.ADV || 0 } };
     for (const b of G.basi) squadra(G, b);
-    for (const f of G.formazione) f.base ||= b0;
+    for (const f of G.formazione || []) f.base ||= b0;
     for (const r of Object.values(G.rotte)) r.pW ||= Math.round(r.pY * CLS.W.mult);
     for (const ae of G.aerei) {
       ae.cab = cabinaStandard(ae.modello, 'mista');
@@ -920,8 +992,31 @@ const SIM = (() => {
     }
     G.voli = G.voli.filter(v => v.stato !== 'prog'); G.genFino = 0;
     for (let i = -1; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
-    G.v = VERSIONE; G._fab = null; vendite(G);
-    notizia(G, 'Programmazione settimanale: ogni aereo ha ora un programma da lunedì a domenica, con orari scelti volo per volo. Controlla le rotazioni.', 'info', true);
+    G.v = 4;
+  }
+  // Versione 5: equipaggi con nome al posto del personale contato per base
+  function migraV5(G) {
+    G.equipaggi = []; G.fissi = {}; G.seqEq = {};
+    for (const [b, P] of Object.entries(G.personale || {})) {
+      let cabinaLibera = (P.CC || 0) + (P.ADV || 0);
+      const tipi = [...new Set([...Object.keys(P.CMD || {}), ...Object.keys(P.FO || {})])].map(tipo => {
+        const aerei = G.aerei.filter(a => a.stato !== 'venduto' && MOD[a.modello].tipo === tipo);
+        return { tipo, lungo: aerei.some(a => MOD[a.modello].lungo), cab: Math.max(1, ...aerei.map(a => cabMin(a)), tipo === 'ATR' ? 2 : 4) };
+      }).sort((x, y) => x.cab - y.cab); // prima i tipi con cabine piccole, così nessun tipo resta senza equipaggi
+      for (const { tipo, lungo, cab } of tipi) {
+        const piloti = lungo ? 3 : 2;
+        const n = Math.min(P.CMD?.[tipo] || 0, Math.floor((P.FO?.[tipo] || 0) / (piloti - 1)));
+        for (let q = 0; q < n && cabinaLibera > 0; q++) { const c = Math.min(cab, cabinaLibera); cabinaLibera -= c; nuovoEquipaggio(G, { base: b, tipo, piloti, cabina: c }); }
+      }
+    }
+    delete G.personale; delete G.formazione;
+    if (G.oggi?.costi) G.oggi.costi.soste ??= 0;
+    for (const ae of G.aerei) delete ae._piano;
+    G.voli = G.voli.filter(v => v.stato !== 'prog'); G.genFino = 0;
+    for (let i = -1; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
+    G.v = VERSIONE; G._roster = null; vendite(G);
+    const sc = roster(G).scoperte.length;
+    notizia(G, `Novità: programmi settimanali, equipaggi con nome assegnati turno per turno e rotte da qualsiasi scalo. ${sc ? `Ci sono ${sc} turni senza equipaggio: vai in Personale o in Programmazione per assumere con un tocco.` : 'Tutti i turni hanno un equipaggio.'}`, 'info', true);
     return G;
   }
 
@@ -992,23 +1087,22 @@ const SIM = (() => {
       const incasso = ae.modo === 'proprieta' ? Math.round(ae.valore * 0.92) : -ae.leasing * 60;
       G.cassa += incasso; if (incasso < 0) G.oggi.costi.altro -= incasso;
       G.voli = G.voli.filter(v => !(v.ae === id && v.stato === 'prog'));
-      G.aerei = G.aerei.filter(a => a !== ae); G._fab = null;
+      G.aerei = G.aerei.filter(a => a !== ae); G._roster = null;
       notizia(G, ae.modo === 'proprieta' ? `${ae.marche} venduto per ${eur(incasso)}.` : `${ae.marche} restituito al locatore (penale ${eur(-incasso)}).`, 'info');
       return ok('Fatto');
     },
     apriBase(G, i) {
       if (G.basi.includes(i)) return err('È già una base');
       const costo = AP[i].slot ? 500000 : 300000; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
-      paga(G, costo); G.basi.push(i); squadra(G, i); if (AP[i].slot) G.slot[i] = (G.slot[i] || 0) + 4;
+      paga(G, costo); G.basi.push(i); if (AP[i].slot) G.slot[i] = (G.slot[i] || 0) + 4;
       notizia(G, `Aperta la base di ${AP[i].citta} (${eur(costo)}): gli aerei possono pernottarci e puoi assumerci equipaggi.`, 'buona'); return ok('Base aperta');
     },
     chiudiBase(G, i) {
       if (G.basi.length < 2) return err('Serve almeno una base');
       if (G.aerei.some(a => a.stato !== 'venduto' && a.prog.giorni.some(g => g.scali[0] === i || g.scali.at(-1) === i))) return err('Qualche aereo pernotta ancora in questa base');
       if (G.aerei.some(a => a.stato !== 'venduto' && pianoCiclo(G, a).turni.some(t => t.base === i))) return err('Qualche turno di equipaggio parte ancora da questa base');
-      const P = squadra(G, i), n = P.CC + P.ADV + Object.values(P.CMD).reduce((s, x) => s + x, 0) + Object.values(P.FO).reduce((s, x) => s + x, 0);
-      if (n) return err('Trasferisci o licenzia prima il personale della base');
-      G.basi = G.basi.filter(b => b !== i); G.hub = G.hub.filter(b => b !== i); delete G.personale[i]; return ok('Base chiusa');
+      if (G.equipaggi.some(e => e.base === i)) return err('Trasferisci o licenzia prima gli equipaggi della base');
+      G.basi = G.basi.filter(b => b !== i); G.hub = G.hub.filter(b => b !== i); G._roster = null; return ok('Base chiusa');
     },
     apriHub(G, i) {
       if (!G.basi.includes(i)) return err('Un hub deve essere prima una base');
@@ -1020,34 +1114,44 @@ const SIM = (() => {
     },
     chiudiHub(G, i) { G.hub = G.hub.filter(b => b !== i); return ok('Hub chiuso: niente più coincidenze vendute qui'); },
     compraSlot(G, i, n) { const costo = AP[i].slotPrezzo * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); G.cassa -= costo; G.slot[i] = (G.slot[i] || 0) + n; return ok(`Acquistati ${n} slot a ${i}`); },
-    assumi(G, base, ruolo, tipo, n) {
+    assumiEquipaggio(G, { base, tipo, piloti = 2, cabina = 4, urgente = false }) {
       if (!G.basi.includes(base)) return err('Si assume solo nelle basi');
-      const pilota = D.RUOLI[ruolo].pilota, costo = (pilota ? 12000 : 1500) * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
-      paga(G, costo); G.formazione.push({ base, ruolo, tipo: pilota ? tipo : null, n, fine: G.ora + (pilota ? 10 : 3) * GIORNO });
-      return ok(`Assunti ${n} a ${base}: in servizio tra ${pilota ? 10 : 3} giorni`);
+      piloti = clamp(Math.round(piloti), 2, 3); cabina = clamp(Math.round(cabina), 1, 16);
+      const costo = costoAssunzione({ piloti, cabina }, urgente); if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+      paga(G, costo, 'personale');
+      const e = nuovoEquipaggio(G, { base, tipo, piloti, cabina, stato: 'formazione', pronto: G.ora + (urgente ? 2 : 10) * GIORNO, motivo: urgente ? 'assunzione urgente tramite agenzia' : 'nuova assunzione' });
+      return ok(`Assunto l’equipaggio ${e.nome} (${tipo}): operativo tra ${urgente ? 2 : 10} giorni`);
     },
-    licenzia(G, base, ruolo, tipo, n) {
-      const P = squadra(G, base), ha = D.RUOLI[ruolo].pilota ? (P[ruolo][tipo] || 0) : P[ruolo];
-      n = Math.min(n, ha); if (!n) return err('Nessuno da licenziare');
-      const costo = n * D.RUOLI[ruolo].paga * 60; paga(G, costo);
-      if (D.RUOLI[ruolo].pilota) P[ruolo][tipo] -= n; else P[ruolo] -= n;
-      G.morale = Math.max(0, G.morale - 2 * n); G._fab = null; return ok(`Licenziati ${n} (buonuscita ${eur(costo)})`);
+    stimaMancanti(G, urgente) { const p = pianoAssunzioni(G); return { n: p.length, costo: p.reduce((x, e) => x + costoAssunzione(e, urgente), 0), equipaggi: p }; },
+    assumiMancanti(G, urgente = false) {
+      const p = pianoAssunzioni(G); if (!p.length) return err('Tutti i turni hanno già un equipaggio (anche contando quelli in arrivo)');
+      const costo = p.reduce((x, e) => x + costoAssunzione(e, urgente), 0); if (G.cassa < costo) return err(`Servono ${eur(costo)} per assumere ${p.length} equipaggi`);
+      paga(G, costo, 'personale');
+      for (const x of p) nuovoEquipaggio(G, { base: x.base, tipo: x.tipo, piloti: x.piloti, cabina: x.cabina, stato: 'formazione', pronto: G.ora + (urgente ? 2 : 10) * GIORNO, motivo: urgente ? 'assunzione urgente tramite agenzia' : 'nuova assunzione' });
+      return ok(`Assunti ${p.length} equipaggi (${eur(costo)}): operativi tra ${urgente ? 2 : 10} giorni`);
     },
-    trasferisciPersonale(G, da, a, ruolo, tipo, n) {
-      const P = squadra(G, da), pil = D.RUOLI[ruolo].pilota, ha = pil ? (P[ruolo][tipo] || 0) : P[ruolo];
-      n = Math.min(n, ha); if (!n || da === a) return err('Nessuno da trasferire');
-      const costo = 3000 * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
-      paga(G, costo); if (pil) P[ruolo][tipo] -= n; else P[ruolo] -= n; G._fab = null;
-      G.formazione.push({ base: a, ruolo, tipo: pil ? tipo : null, n, fine: G.ora + 5 * GIORNO, trasf: true });
-      return ok(`${n} trasferiti da ${da} a ${a}: operativi tra 5 giorni`);
+    licenziaEquipaggio(G, id) {
+      const e = G.equipaggi.find(x => x.id === id); if (!e) return err('Equipaggio inesistente');
+      const costo = pagaEquipaggio(e) * 60; paga(G, costo, 'personale');
+      G.equipaggi = G.equipaggi.filter(x => x !== e); for (const k in G.fissi) if (G.fissi[k] === id) delete G.fissi[k];
+      G.morale = Math.max(0, G.morale - 3); G._roster = null; return ok(`Equipaggio ${e.nome} licenziato (buonuscita ${eur(costo)})`);
     },
-    riqualifica(G, base, ruolo, da, a, n) {
-      const P = squadra(G, base); n = Math.min(n, P[ruolo][da] || 0); if (!n) return err('Nessun pilota disponibile');
-      const costo = 35000 * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
-      paga(G, costo); P[ruolo][da] -= n; G._fab = null;
-      G.formazione.push({ base, ruolo, tipo: a, n, fine: G.ora + 30 * GIORNO, riq: true });
-      return ok(`${n} piloti in riqualifica su ${a} per 30 giorni`);
+    trasferisciEquipaggio(G, id, base) {
+      const e = G.equipaggi.find(x => x.id === id); if (!e || !G.basi.includes(base) || base === e.base) return err('Scegli un’altra base');
+      const costo = 3000 * persone(e); if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+      paga(G, costo, 'personale'); const da = e.base; e.base = base; e.stato = 'formazione'; e.pronto = G.ora + 5 * GIORNO; e.motivo = `trasferito da ${da}`;
+      for (const k in G.fissi) if (G.fissi[k] === id) delete G.fissi[k]; G._roster = null;
+      return ok(`${e.nome} si trasferisce a ${base}: operativo tra 5 giorni`);
     },
+    riqualificaEquipaggio(G, id, tipo) {
+      const e = G.equipaggi.find(x => x.id === id); if (!e || e.tipo === tipo) return err('Scegli un’altra abilitazione');
+      const costo = 35000 * e.piloti; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+      paga(G, costo, 'personale'); e.tipo = tipo; e.stato = 'formazione'; e.pronto = G.ora + 30 * GIORNO; e.motivo = `riqualificato su ${tipo}`;
+      for (const k in G.fissi) if (G.fissi[k] === id) delete G.fissi[k]; G._roster = null;
+      return ok(`${e.nome} in riqualifica su ${tipo} per 30 giorni`);
+    },
+    // blocca un equipaggio su un turno (crewId null = torna all'assegnazione automatica)
+    fissaEquipaggio(G, turno, crewId) { G.fissi ||= {}; if (crewId) G.fissi[turno] = crewId; else delete G.fissi[turno]; G._roster = null; const r = roster(G); return r.assegna[turno] === crewId || !crewId ? ok(crewId ? 'Equipaggio assegnato al turno' : 'Assegnazione automatica') : err('Quell’equipaggio non può fare il turno: riposo, ore o abilitazione non lo permettono'); },
     avviaCampagna(G, { canale, ambito, obiettivo, budget, giorni }) {
       const M = D.MARKETING[canale]; if (!M) return err('Canale sconosciuto');
       if (!M.ambiti.includes(ambito)) return err('Copertura non disponibile per questo canale');
@@ -1077,6 +1181,6 @@ const SIM = (() => {
     }
   };
 
-  return { GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze, fabbisogno, copertura, squadra, costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

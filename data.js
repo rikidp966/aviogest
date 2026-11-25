@@ -200,7 +200,7 @@ const DATI = (() => {
       nome: 'Primo decollo', difficolta: 'Normale', durata: 1095, inizio: g(2027, 3, 1), sceltaBase: true,
       descr: 'Hai 6 milioni, un ATR 72 in leasing e un sogno. Scegli la base e costruisci una compagnia vera.',
       obiettivi: 'Raggiungi 8 aerei e 15 M€ di utile cumulato entro 3 anni.',
-      cassa: 6e6, flotta: [['ATR72', 'leasing']], personale: { CMD: { ATR: 5 }, FO: { ATR: 5 }, CC: 5, ADV: 5 }
+      cassa: 6e6, flotta: [['ATR72', 'leasing']], equipaggi: [['ATR', 4, 2, 2]]
     },
     crisi: {
       nome: 'Compagnia in crisi', difficolta: 'Difficile', durata: 365, inizio: g(2027, 1, 10),
@@ -213,20 +213,20 @@ const DATI = (() => {
       descr: 'Base a Malpensa, tre aerei e Ventura Air che domina Linate. Prenditi il mercato milanese.',
       obiettivi: 'Opera almeno 5 rotte da Milano con una quota media del 35% entro 18 mesi.',
       base: 'MXP', cassa: 12e6, slot: { MXP: 14 }, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['A319', 'proprieta']],
-      personale: { CMD: { A320: 15 }, FO: { A320: 15 }, CC: 15, ADV: 45 }
+      equipaggi: [['A320', 9, 2, 4]]
     },
     libera: {
       nome: 'Partita libera', difficolta: 'Facile', durata: 0, inizio: g(2027, 3, 1), sceltaBase: true,
       descr: '40 milioni, due A320 in leasing, nessuna scadenza. Fai crescere il valore della compagnia.',
       obiettivi: 'Nessun obiettivo: conta il valore della compagnia.',
-      cassa: 40e6, flotta: [['A320', 'leasing'], ['A320', 'leasing']], personale: { CMD: { A320: 10 }, FO: { A320: 10 }, CC: 10, ADV: 30 }
+      cassa: 40e6, flotta: [['A320', 'leasing'], ['A320', 'leasing']], equipaggi: [['A320', 6, 2, 4]]
     },
     globale: {
       nome: 'Compagnia globale', difficolta: 'Difficile', durata: 1825, inizio: g(2027, 3, 1), sceltaBase: true, mondo: true,
       descr: 'Base dove vuoi nel mondo, 150 milioni, un A330-900neo e due A320 in leasing. Costruisci una rete intercontinentale.',
       obiettivi: 'Collega 5 continenti e porta il valore della compagnia a 400 M€ entro 5 anni.',
       cassa: 150e6, flotta: [['A339', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']],
-      personale: { CMD: { A330: 9, A320: 10 }, FO: { A330: 17, A320: 10 }, CC: 18, ADV: 70 }
+      equipaggi: [['A330', 7, 3, 6], ['A320', 6, 2, 4]]
     }
   };
 
