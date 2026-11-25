@@ -1,0 +1,4 @@
+# salvataggi e classifica locali del server
+data/
+# configurazione locale dell'editor
+.claude/
