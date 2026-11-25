@@ -350,12 +350,12 @@ function tabellaOggi() {
   if (!lista.length) return '<p class="vuoto">Nessun volo programmato. Crea una rotazione in Programmazione.</p>';
   const schede = `<div class="schede solo-mobile">${lista.map(v => { const ae = G.aerei.find(a => a.id === v.ae), cab = ae ? ae.cab : SIM.zero(), vend = { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y };
     return `<div class="scheda"><div class="riga"><b>${h(v.num)} · ${v.da} → ${v.a}</b>${badgeVolo(v)}</div><div class="riga muto"><span>${SIM.mezzanotte(v.dep) !== g0 ? 'domani ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` → ${fmtOra(v.depEff)}` : ''} – ${fmtOra(v.arrEff || v.arr)}</span><span>${h(ae?.marche || '')}</span></div><div>${chipCab(cab, vend)}${somma(v.t) ? `<span class="chip">${somma(v.t)} in transito</span>` : ''}</div><div class="riga"><span class="muto">Incassato</span><b>${eur(somma(v.inc))}</b></div></div>`; }).join('')}</div>`;
-  return schede + `<table class="solo-desktop"><thead><tr><th>Volo</th><th>Tratta</th><th>Aereo · equipaggio</th><th>Partenza</th><th>Arrivo</th><th>Venduti per classe</th><th class="num">In transito</th><th class="num">Incassato</th><th>Stato</th></tr></thead><tbody>
+  return `<div class="tabellone">` + schede + `<table class="solo-desktop"><thead><tr><th>Volo</th><th>Tratta</th><th>Aereo · equipaggio</th><th>Partenza</th><th>Arrivo</th><th>Venduti per classe</th><th class="num">In transito</th><th class="num">Incassato</th><th>Stato</th></tr></thead><tbody>
     ${lista.map(v => { const ae = G.aerei.find(a => a.id === v.ae), cab = ae ? ae.cab : SIM.zero(), vend = { J: v.v.J + v.t.J, W: v.v.W + v.t.W, Y: v.v.Y + v.t.Y };
       return `<tr><td><b>${h(v.num)}</b></td><td>${v.da} → ${v.a} <span class="muto piccolo">${h(citta(v.da))}–${h(citta(v.a))}</span></td><td>${h(ae?.marche || '—')} <span class="muto piccolo">base ${v.base}${v.fineTurno ? ', rientro' : ''}</span></td>
-      <td>${SIM.mezzanotte(v.dep) !== g0 ? '<span class="muto piccolo">domani</span> ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` <span class="muto piccolo">→ ${fmtOra(v.depEff)}</span>` : ''}${locale(v.dep, v.da)}</td><td>${fmtOra(v.arrEff || v.arr)}${locale(v.arrEff || v.arr, v.a)}</td>
+      <td class="ora-tab">${SIM.mezzanotte(v.dep) !== g0 ? '<span class="muto piccolo">domani</span> ' : ''}${fmtOra(v.dep)}${v.rit && v.stato !== 'canc' ? ` <span class="muto piccolo">→ ${fmtOra(v.depEff)}</span>` : ''}${locale(v.dep, v.da)}</td><td class="ora-tab">${fmtOra(v.arrEff || v.arr)}${locale(v.arrEff || v.arr, v.a)}</td>
       <td>${chipCab(cab, vend)}</td><td class="num">${somma(v.t) || ''}</td><td class="num">${eur(somma(v.inc))}</td><td>${badgeVolo(v)}</td></tr>`; }).join('')}</tbody></table>
-    <p class="nota">I biglietti si vendono nei tre giorni prima della partenza. “In transito” sono i passeggeri che proseguono con una tua coincidenza in un hub.</p>`;
+    <p class="nota">I biglietti si vendono nei tre giorni prima della partenza. “In transito” sono i passeggeri che proseguono con una tua coincidenza in un hub.</p></div>`;
 }
 function tabellaRegistro() {
   if (!G.registro.length) return '<p class="vuoto">Ancora nessun volo effettuato.</p>';
@@ -395,7 +395,7 @@ function cartaAereo(ae) {
     ${barraCabina(ae.modello, ae.cab)}
     <div class="riga"><span>Contratto</span><span>${ae.modo === 'leasing' ? `Leasing ${eur(ae.leasing)}/g` : `Proprietà · valore ${mln(ae.valore)}`}</span></div>
     <div class="riga"><span>Età · ore totali</span><span>${ae.eta} anni · ${num(ae.ore)} h</span></div>
-    <div class="riga"><span>Ciclo</span><span>${n} giorn${n > 1 ? 'i' : 'o'} · ${oreGiorno(ae).toFixed(1)} h/giorno · notti a ${notti.join(', ')}</span></div>
+    <div class="riga"><span>Settimana</span><span>${SIM.mediaCiclo(ae).tratte.length} voli · ${Math.round(oreGiorno(ae) * 7)} h · notti a ${notti.join(', ')}</span></div>
     <div class="riga"><span>Utile voli 7 giorni</span><span>${segno(s7.ricavi - s7.costi)}</span></div>
     <div class="riga"><span>Ore dall’ultima ispezione</span><span>${ae.lavori ? `${ae.lavori.tipo === 'cabina' ? 'cabina' : 'ispezione'} dalle ${fmtOra(ae.lavori.inizio)} del ${fmtGiorno(ae.lavori.inizio)}` : ''}</span></div>
     ${barretta(ae.oreDaCheck / 600, `${Math.round(ae.oreDaCheck)}/600 h`, [0.85, 1.0])}
@@ -441,62 +441,87 @@ function aggiornaConfig() {
 }
 
 /* Programmazione su più giorni */
+const GS = SIM.GIORNI_SETT, GS3 = GS.map(x => x.slice(0, 3));
 VISTE.programmazione = () => {
   const f = flotta();
   if (!f.length) return '<div class="testata"><h1>Programmazione</h1></div><p class="vuoto">Nessun aereo.</p>';
   if (!UI.aereoSel || !f.find(a => a.id === UI.aereoSel)) UI.aereoSel = f[0].id;
   const ae = f.find(a => a.id === UI.aereoSel);
   if (!bozza || bozza.aeId !== ae.id) {
-    const oggiIdx = SIM.indiceCiclo(ae.prog, SIM.mezzanotte(G.ora)), n = ae.prog.giorni.length;
-    // la bozza parte da "oggi": il Giorno 1 dell'editor è il giorno del ciclo che l'aereo vola oggi
-    const giorni = Array.from({ length: n }, (_, i) => JSON.parse(JSON.stringify(ae.prog.giorni[(oggiIdx + i) % n])));
-    bozza = { aeId: ae.id, turn: ae.prog.turn, giorni, sel: 0, orig: JSON.stringify({ turn: ae.prog.turn, giorni }) };
+    const giorni = SIM.normalizza(ae.prog).giorni;
+    bozza = { aeId: ae.id, turn: ae.prog.turn, giorni, sel: SIM.giornoSett(G.ora), orig: JSON.stringify({ turn: ae.prog.turn, giorni }) };
   }
-  return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ripete un ciclo di 1–7 giorni. Notti e soste lunghe solo nelle basi; nessun decollo tra le 00:30 e le 05:30 ora locale. Gli orari sono nell’ora della tua base principale, tra parentesi l’ora locale.</span></div>
+  return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ha un programma settimanale, da lunedì a domenica. Notti e soste lunghe solo nelle basi; nessun decollo tra le 00:30 e le 05:30 ora locale. Orari nell’ora di ${h(citta(G.basi[0]))}, tra parentesi l’ora locale.</span></div>
   <div class="prog">
-    <div class="lista-aerei">${f.map(a => `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span>${h(a.marche)} <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${a.prog.giorni.length > 1 ? a.prog.giorni.length + 'g · ' : ''}${oreGiorno(a).toFixed(1)} h</span></button>`).join('')}</div>
+    <div class="lista-aerei">${f.map(a => { const mc = SIM.mediaCiclo(a); return `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span><b class="mono">${h(a.marche)}</b> <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${mc.tratte.length} voli · ${Math.round(mc.ore * 7)} h</span></button>`; }).join('')}</div>
     <div class="pannello" id="editor">${editor(ae)}</div>
   </div>
-  <div class="pannello mt"><h2>Cronoprogramma di oggi</h2><div class="tab-wrap">${cronoprogramma()}</div></div>`;
+  <div class="pannello mt"><h2>Oggi · tutta la flotta</h2><div class="tab-wrap">${cronoprogramma()}</div></div>`;
 };
+// Griglia della settimana: una riga per giorno, 24 ore; i voli dopo mezzanotte continuano sulla riga del giorno dopo
+function settimanaGriglia(v, errDi) {
+  const oggi = SIM.giornoSett(G.ora), righe = GS.map(() => []);
+  v.giorni.forEach((gg, i) => gg.legs.forEach(l => {
+    // un volo che passa la mezzanotte si spezza: la seconda parte va sulla riga del giorno dopo
+    const r0 = (i + Math.floor(l.dep / 1440)) % 7, r1 = (i + Math.floor((l.arr - 1) / 1440)) % 7, a = l.dep % 1440;
+    if (r0 === r1) righe[r0].push({ l, a, b: a + l.dur, cont: l.dep >= 1440 });
+    else { righe[r0].push({ l, a, b: 1440, cont: false }); righe[r1].push({ l, a: 0, b: l.arr % 1440 || 1440, cont: true }); }
+  }));
+  return `<div class="sett"><div class="sett-scala"><span></span><div>${[0, 6, 12, 18, 24].map(o => `<i style="left:${o / 24 * 100}%">${pad(o % 24)}</i>`).join('')}</div></div>
+    ${GS.map((nome, i) => `<div class="sett-riga ${i === bozza.sel ? 'on' : ''}" data-az="p-giorno" data-i="${i}" role="button" tabindex="0" aria-label="${nome}">
+      <span class="sett-g">${GS3[i]}${i === oggi ? '<em>oggi</em>' : ''}${errDi(i) ? '<b class="sett-err" title="Ci sono errori in questo giorno">!</b>' : ''}</span>
+      <div class="sett-pista">${righe[i].map(x => `<div class="sett-volo${x.cont ? ' cont' : ''}" style="left:${x.a / 14.4}%;width:${Math.max(0.6, (x.b - x.a) / 14.4)}%" data-tip="${h(`${x.l.da}→${x.l.a} ${SIM.oraDaMin(x.l.dep)}–${SIM.oraDaMin(x.l.arr)}`)}">${(x.b - x.a) > 70 ? x.l.da + '–' + x.l.a : ''}</div>`).join('')}</div></div>`).join('')}</div>`;
+}
 function editor(ae) {
   const m = MOD[ae.modello], prog = { turn: bozza.turn, giorni: bozza.giorni }, v = SIM.validaProgramma(G, ae, prog);
-  const g = bozza.giorni[bozza.sel], ultimo = g.scali.at(-1), gv = v.giorni[bozza.sel] || { legs: [], turni: [] };
+  const g = bozza.giorni[bozza.sel], ultimo = g.scali.at(-1), gv = v.giorni[bozza.sel] || { legs: [], turni: [] }, nome = GS[bozza.sel];
   const dest = Object.keys(G.rotte).map(k => k.split('-')).filter(p => p.includes(ultimo)).map(p => p[0] === ultimo ? p[1] : p[0]).map(d => ({ d, k: SIM.km(ultimo, d) })).sort((a, b) => a.k - b.k);
-  const media = SIM.mediaCiclo(ae, prog), modificato = JSON.stringify({ turn: bozza.turn, giorni: bozza.giorni }) !== bozza.orig;
+  const modificato = JSON.stringify({ turn: bozza.turn, giorni: bozza.giorni }) !== bozza.orig;
   const basiRientro = G.basi.filter(b => b !== ultimo && G.rotte[SIM.chiave(ultimo, b)]);
-  return `<div class="testata" style="margin-bottom:10px"><h2 style="margin:0">${h(ae.marche)} · ${m.nome}</h2><span class="sotto">${cabTesto(ae.cab)} · autonomia ${num(m.autonomia)} km</span></div>
-    ${ae.stato === 'consegna' ? `<p class="piccolo"><span class="badge b-info">In consegna a ${ae.base}</span> Puoi già preparare la rotazione: partirà alla consegna.</p>` : ''}
-    <div class="giorni-tab">${bozza.giorni.map((x, i) => `<button data-az="p-giorno" data-i="${i}" class="${i === bozza.sel ? 'on' : ''}">Giorno ${i + 1}${i === 0 ? ' (oggi)' : ''} · ${x.scali[0]}→${x.scali.at(-1)}</button>`).join('')}
-      ${bozza.giorni.length < 7 ? '<button data-az="p-nuovo-giorno">+ Giorno</button>' : ''}${bozza.giorni.length > 1 ? '<button class="pericolo" data-az="p-togli-giorno">Elimina questo giorno</button>' : ''}</div>
-    <div class="filtri">
-      <label class="campo">Prima partenza del giorno ${bozza.sel + 1}<input type="time" id="pInizio" value="${g.inizio}" step="300"></label>
-      <label class="campo">Turnaround (tutti i giorni)<select id="pTurn">${opzioni((m.lungo ? [75, 90, 120, 150] : [30, 35, 40, 45, 50, 60, 75, 90]).map(x => [x, x + ' minuti']), bozza.turn)}</select></label>
-      <label class="campo">Parte da<select id="pPartenza">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), g.scali[0])}</select></label>
-    </div>
-    <div>${gv.legs.length ? gv.legs.map((l, i) => { const r = G.rotte[SIM.chiave(l.da, l.a)];
-      return `<div class="tratta-riga"><span class="n">${i + 1}</span><span><b>${l.da} → ${l.a}</b> <span class="muto">${h(citta(l.da))}–${h(citta(l.a))}</span><br><span class="piccolo">${oraMin(l.dep)}${localeMin(l.dep, l.da)} – ${oraMin(l.arr)}${localeMin(l.arr, l.a)} · ${fmtDur(l.dur)} · ${num(SIM.km(l.da, l.a))} km${r ? ` · ${CL.filter(c => ae.cab[c]).map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}` : ''}${G.hub.includes(l.a) ? ' · <b>arrivo in hub</b>' : ''}</span></span><span>${i === gv.legs.length - 1 ? `<button class="piccolo" data-az="p-togli">Togli</button>` : ''}</span></div>`; }).join('')
-      : `<p class="muto">Nessuna tratta: l’aereo resta a terra a ${g.scali[0]} per tutto il giorno.</p>`}</div>
+  const errDi = i => v.E.some(e => e.startsWith(GS[i] + ':'));
+  const minimi = SIM.legsGiorno(ae, { ...g, attese: [] }, bozza.turn);
+  return `<div class="testata" style="margin-bottom:10px"><h2 style="margin:0"><span class="mono">${h(ae.marche)}</span> · ${m.nome}</h2><span class="sotto">${cabTesto(ae.cab)} · autonomia ${num(m.autonomia)} km</span></div>
+    ${ae.stato === 'consegna' ? `<p class="piccolo"><span class="badge b-info">In consegna a ${ae.base}</span> Puoi già preparare il programma: partirà alla consegna.</p>` : ''}
+    ${settimanaGriglia(v, errDi)}
+    <div class="giorno-testa"><h3>${nome}</h3>
+      <div class="filtri" style="margin:0">
+        <label class="campo">Parte da<select id="pPartenza">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), g.scali[0])}</select></label>
+        <label class="campo">Primo decollo<input type="time" id="pInizio" value="${g.inizio}" step="300"></label>
+        <label class="campo">Turnaround minimo<select id="pTurn">${opzioni((m.lungo ? [75, 90, 120, 150] : [25, 30, 35, 40, 45, 50, 60, 75, 90]).map(x => [x, x + ' min']), bozza.turn)}</select></label>
+      </div></div>
+    <div class="tratte">${gv.legs.length ? gv.legs.map((l, i) => { const r = G.rotte[SIM.chiave(l.da, l.a)], extra = g.attese?.[i] || 0;
+      return `<div class="tratta-riga"><span class="n">${i + 1}</span>
+        <span class="orario-volo">${i === 0 ? `<b class="mono">${oraMin(l.dep)}</b>` : `<input type="time" class="ora-volo" data-leg="${i}" value="${SIM.oraDaMin(l.dep)}" step="300" aria-label="Partenza del volo ${i + 1}">`}<small>${i > 0 ? (extra ? `+${extra} min a terra` : 'al più presto') : 'primo volo'}</small></span>
+        <span><b>${l.da} → ${l.a}</b> <span class="muto">${h(citta(l.da))}–${h(citta(l.a))}</span><br><span class="piccolo">${oraMin(l.dep)}${localeMin(l.dep, l.da)} – ${oraMin(l.arr)}${localeMin(l.arr, l.a)} · ${fmtDur(l.dur)} · ${num(SIM.km(l.da, l.a))} km${r ? ` · ${CL.filter(c => ae.cab[c]).map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}` : ''}${G.hub.includes(l.a) ? ' · <b>arrivo in hub</b>' : ''}</span></span>
+        <span>${i === gv.legs.length - 1 ? `<button class="piccolo" data-az="p-togli">Togli</button>` : ''}</span></div>`; }).join('')
+      : `<p class="muto">Nessun volo: l’aereo resta a terra a ${g.scali[0]} tutto il giorno.</p>`}</div>
     <div class="filtri mt">
       <select id="pDest">${dest.length ? opzioni(dest.map(x => [x.d, `${x.d} · ${citta(x.d)} · ${num(x.k)} km${x.k > m.autonomia ? ' (fuori autonomia)' : ''}${G.basi.includes(x.d) ? ' · base' : ''}`]), '') : '<option value="">Nessuna rotta aperta da ' + ultimo + '</option>'}</select>
-      <button data-az="p-aggiungi" ${dest.length ? '' : 'disabled'}>Aggiungi tratta</button>
+      <button data-az="p-aggiungi" ${dest.length ? '' : 'disabled'}>Aggiungi volo</button>
       ${basiRientro.map(b => `<button data-az="p-rientra" data-b="${b}">Chiudi a ${b}</button>`).join('')}
       ${g.scali.length > 2 && ultimo === g.scali[0] ? `<button data-az="p-ripeti">Ripeti il giro</button>` : ''}
-      ${g.scali.length > 1 ? `<button class="pericolo" data-az="p-svuota">Svuota il giorno</button>` : ''}
-      <a class="btn" href="#/rotte">Apri altre rotte</a>
+      ${g.scali.length > 1 ? `<button class="pericolo" data-az="p-svuota">Svuota ${nome.toLowerCase()}</button>` : ''}
     </div>
-    ${gv.turni.length ? `<b class="piccolo">Turni degli equipaggi del giorno ${bozza.sel + 1}</b><ul class="turni">${gv.turni.map((t, i) => `<li>Turno ${i + 1}: equipaggio della base <b>${t.base}</b> · servizio dalle ${oraMin(t.legs[0].dep - 60)}, durata ${fmtDur(t.fine - t.inizio)} (${fmtDur(t.blocco)} di volo)${t.lungo ? ' · <b>lungo raggio, 3 piloti</b>' : ''}${t.albergo ? ' · equipaggio in albergo fuori base' : ''} · ${t.legs.length} tratte · ${t.termina === t.base ? 'rientra a casa' : `<span style="color:var(--warn)">finisce a ${t.termina}: albergo o rientro a pagamento</span>`}</li>`).join('')}</ul>` : ''}
-    <p class="piccolo mt">Ciclo di <b>${bozza.giorni.length}</b> giorn${bozza.giorni.length > 1 ? 'i' : 'o'} · media <b>${media.ore.toFixed(1)} h</b> di volo al giorno · notti a <b>${bozza.giorni.map(x => x.scali.at(-1)).join(' → ')}</b></p>
-    ${v.E.length || v.W.length ? `<ul class="problemi">${v.E.map(e => `<li class="errore">✖ ${h(e)}</li>`).join('')}${v.W.map(e => `<li class="avviso">▲ ${h(e)}</li>`).join('')}</ul>` : media.tratte.length ? '<ul class="problemi"><li class="ok">✓ Programma coerente: notti in base, turni entro 13 ore</li></ul>' : ''}
-    <div class="filtri mt"><button class="primario" data-az="p-salva" ${v.E.length || !modificato ? 'disabled' : ''}>Salva rotazione</button>${modificato ? '<button data-az="p-annulla">Annulla modifiche</button><span class="piccolo muto">Modifiche non salvate</span>' : ''}</div>`;
+    <div class="copia"><span>Copia ${nome.toLowerCase()} su</span>
+      <button class="piccolo" data-az="p-copia" data-dove="succ">${GS[(bozza.sel + 1) % 7].toLowerCase()}</button>
+      <button class="piccolo" data-az="p-copia" data-dove="feriali">lun–ven</button>
+      <button class="piccolo" data-az="p-copia" data-dove="weekend">sab–dom</button>
+      <button class="piccolo" data-az="p-copia" data-dove="tutti">tutta la settimana</button></div>
+    ${gv.turni.length ? `<b class="piccolo">Equipaggi di ${nome.toLowerCase()}</b><ul class="turni">${gv.turni.map((t, i) => `<li>Turno ${i + 1}: base <b>${t.base}</b> · servizio dalle ${oraMin(t.legs[0].dep - 60)}, ${fmtDur(t.fine - t.inizio)} (${fmtDur(t.blocco)} di volo)${t.lungo ? ' · <b>lungo raggio, 3 piloti</b>' : ''}${t.albergo ? ' · equipaggio in albergo fuori base' : ''} · ${t.legs.length} voli · ${t.termina === t.base ? 'rientra a casa' : `<span style="color:var(--warn)">finisce a ${t.termina}: albergo o rientro a pagamento</span>`}</li>`).join('')}</ul>` : ''}
+    <div class="sett-sintesi"><div><small>Voli a settimana</small><b>${v.voliSett}</b></div><div><small>Ore di volo a settimana</small><b>${num(v.oreSett, 1)}</b></div><div><small>Notti</small><b class="mono piccolo">${bozza.giorni.map((x, i) => GS3[i] + ' ' + x.scali.at(-1)).join(' · ')}</b></div></div>
+    ${v.E.length || v.W.length ? `<ul class="problemi">${v.E.map(e => `<li class="errore">✖ ${h(e)}</li>`).join('')}${v.W.map(e => `<li class="avviso">▲ ${h(e)}</li>`).join('')}</ul>` : v.voliSett ? '<ul class="problemi"><li class="ok">✓ Programma coerente: notti in base, turni nei limiti, settimana che si chiude su se stessa</li></ul>' : ''}
+    <div class="filtri mt"><button class="primario" data-az="p-salva" ${v.E.length || !modificato ? 'disabled' : ''}>Salva programma</button>${modificato ? '<button data-az="p-annulla">Annulla modifiche</button><span class="piccolo muto">Modifiche non salvate</span>' : ''}</div>`;
 }
 function cronoprogramma() {
   const oggi = SIM.mezzanotte(G.ora), pos = t => Math.max(0, Math.min(100, (t - oggi) / GIORNO * 100));
   let s = `<div class="crono"><div class="ore"><div></div><div class="scala">${Array.from({ length: 9 }, (_, i) => `<span style="left:${i * 12.5}%">${pad(i * 3)}:00</span>`).join('')}</div></div>`;
   for (const ae of flotta()) {
-    s += `<div class="riga"><div class="chi" data-az="sel-aereo" data-id="${ae.id}">${h(ae.marche)}<small>${ae.modello} · giorno ${SIM.indiceCiclo(ae.prog, oggi) + 1}/${ae.prog.giorni.length}</small></div><div class="pista">`;
+    s += `<div class="riga"><div class="chi" data-az="sel-aereo" data-id="${ae.id}"><span class="mono">${h(ae.marche)}</span><small>${ae.modello} · ${SIM.GIORNI_SETT[SIM.giornoSett(oggi)].toLowerCase()}</small></div><div class="pista">`;
     if (ae.lavori && ae.lavori.inizio < oggi + GIORNO) s += `<div class="blocco manut" style="left:${pos(ae.lavori.inizio)}%;width:${pos(ae.lavori.fine) - pos(ae.lavori.inizio)}%">${ae.lavori.tipo === 'cabina' ? 'Cabina' : 'Ispezione'}</div>`;
-    for (const l of SIM.tratteDi(ae, oggi)) if (l.dep < 1440) s += `<div class="blocco" style="left:${l.dep / 14.4}%;width:${Math.min(l.dur, 1440 - l.dep) / 14.4}%" data-tip="${h(`${l.da}→${l.a} ${SIM.oraDaMin(l.dep)}–${SIM.oraDaMin(l.arr)}`)}">${l.da}-${l.a}</div>`;
+    for (const v of G.voli) if (v.ae === ae.id && v.dep < oggi + GIORNO && (v.arrEff || v.arr) > oggi) {
+      const a = v.depEff || v.dep, b = v.arrEff || v.arr;
+      s += `<div class="blocco ${v.stato === 'canc' ? 'canc' : ''}" style="left:${pos(a)}%;width:${Math.max(0.5, pos(b) - pos(a))}%" data-tip="${h(`${v.num} ${v.da}→${v.a} ${fmtOra(a)}–${fmtOra(b)}${v.stato === 'canc' ? ' · cancellato' : ''}`)}">${v.da}-${v.a}</div>`;
+    }
     s += '</div></div>';
   }
   return s + `<div class="ora-ora" style="left:calc(100px + (100% - 100px) * ${(G.ora - oggi) / GIORNO})"></div></div>`;
@@ -506,9 +531,9 @@ function cronoprogramma() {
 VISTE.rotte = () => {
   const righe = Object.entries(G.rotte).sort((a, b) => a[0].localeCompare(b[0]));
   return `<div class="testata"><h1>Rotte e prezzi</h1><span class="sotto">${righe.length} rotte aperte</span><span class="spazio"></span><button class="primario" data-az="apri-rotta">+ Apri nuova rotta</button></div>
-  <div class="pannello"><div class="tab-wrap">${righe.length ? `<table><thead><tr><th>Rotta</th><th class="num">Km</th><th class="num">Voli/g</th><th>Business</th><th>Premium</th><th>Economy</th><th>Quota</th><th>Concorrenti</th><th>Load factor 7 gg</th><th class="num">Ricavi 7 gg</th><th class="num">Utile voli 7 gg</th><th></th></tr></thead><tbody>
+  <div class="pannello"><div class="tab-wrap">${righe.length ? `<table><thead><tr><th>Rotta</th><th class="num">Km</th><th class="num">Voli/sett.</th><th>Business</th><th>Premium</th><th>Economy</th><th>Quota</th><th>Concorrenti</th><th>Load factor 7 gg</th><th class="num">Ricavi 7 gg</th><th class="num">Utile voli 7 gg</th><th></th></tr></thead><tbody>
     ${righe.map(([k, r]) => { const [a, b] = k.split('-'), d = SIM.km(a, b), ref = SIM.prezzoRif(d), s = statsRotta(k), riv = SIM.rivaliSu(G, a, b), f = freqRotta(k);
-      return `<tr><td><b>${a}–${b}</b> <span class="muto piccolo">${h(citta(a))}–${h(citta(b))}</span></td><td class="num">${num(d)}</td><td class="num">${num(f, 1)}</td>
+      return `<tr><td><b>${a}–${b}</b> <span class="muto piccolo">${h(citta(a))}–${h(citta(b))}</span></td><td class="num">${num(d)}</td><td class="num">${num(f * 7)}</td>
       ${CL.map(c => `<td><input class="prezzo" type="number" min="10" step="1" value="${r['p' + c]}" data-prezzo="${k}" data-cl="${c}" title="Riferimento ${eur(ref * SIM.multClasse(c, d))}"></td>`).join('')}
       <td>${f ? barretta(r.quota || 0, null, [2, 2]) : '<span class="muto piccolo">nessun volo</span>'}${(() => { const sp = Math.max(SIM.spinta(G, a, b).tot, SIM.spinta(G, b, a).tot); return sp > 0.01 ? `<span class="badge b-info" title="Effetto della pubblicità sull’attrattività">📣 +${Math.round(sp * 100)}%</span>` : ''; })()}</td>
       <td>${riv.length ? [...new Map(riv.map(x => [x.riv.id, x])).values()].map(x => `<span class="pallino" style="background:${x.riv.colore}" title="${h(x.riv.nome)}"></span>${h(x.riv.nome)}${x.guerra ? ' <span class="badge b-err">sconti</span>' : ''}`).join('<br>') : '<span class="muto">nessuno</span>'}</td>
@@ -977,13 +1002,20 @@ async function menuIniziale() {
   const S = D.SCENARI[UI.scenarioSel];
   const basi = perContinente();
   m.innerHTML = `<div class="menu-box">
-    <h1><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${AEREO_PATH}"/></svg>AvioGest</h1>
-    <p class="motto">Costruisci la tua compagnia aerea: rotte, cabine, prezzi per classe, basi e hub, equipaggi e concorrenti.</p>
+    <h1><span class="logo-segno" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.5v-1.6l-6.7-4.2V5.2a1.3 1.3 0 0 0-2.6 0v4.5L4 13.9v1.6l6.7-2.1v4.1L9 18.8v1.2l3-.8 3 .8v-1.2l-1.7-1.3v-4.1z"/></svg></span>AvioGest</h1>
+    <p class="motto">Costruisci la tua compagnia aerea in tutto il mondo: flotta e cabine, programmi settimanali, prezzi per classe, basi e hub, equipaggi, marketing e concorrenti.</p>
+    <div class="striscia" aria-label="Partenze">${'PARTENZE'.split('').map(c => `<span>${c}</span>`).join('')}</div>
     ${salvati.length ? `<h2>Continua</h2><div class="pannello"><table><thead><tr><th>Compagnia</th><th>Scenario</th><th>Data di gioco</th><th class="num">Cassa</th><th>Salvata</th><th></th></tr></thead><tbody>
       ${salvati.map(s => `<tr class="clic" data-az="carica" data-id="${s.id}"><td><b>${h(s.nome)}</b></td><td>${h(D.SCENARI[s.scenario]?.nome || '')}</td><td>${fmtData(s.ora)}</td><td class="num">${eur(s.cassa)}</td><td>${new Date(s.salvato).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</td><td><button class="piccolo" data-az="elimina-salvataggio" data-id="${s.id}">Elimina</button></td></tr>`).join('')}
     </tbody></table></div>` : ''}
     <h2>Nuova partita</h2>
-    <div class="scenari">${Object.entries(D.SCENARI).map(([k, s]) => `<button class="scenario ${k === UI.scenarioSel ? 'on' : ''}" data-az="scegli-scenario" data-s="${k}"><span class="diff">${s.difficolta}</span><b>${s.nome}</b><p>${h(s.descr)}</p><p><i>${h(s.obiettivi)}</i></p></button>`).join('')}</div>
+    <div class="scenari">${Object.entries(D.SCENARI).map(([k, s], i) => `<button class="scenario ${k === UI.scenarioSel ? 'on' : ''}" data-az="scegli-scenario" data-s="${k}" aria-pressed="${k === UI.scenarioSel}">
+      <span class="pass-main"><span class="pass-testa">Carta d’imbarco <i>${h(s.difficolta)}</i></span>
+        <b class="pass-nome">${h(s.nome)}</b><p>${h(s.descr)}</p>
+        <span class="pass-lab">Obiettivo</span><p class="pass-ob">${h(s.obiettivi)}</p></span>
+      <span class="pass-stub"><span class="pass-lab">Posto</span><span class="codice">${['1A', '2C', '3F', '4D', '5K'][i] || '6B'}</span>
+        <span class="pass-lab">Durata</span><b>${s.durata ? Math.round(s.durata / 365 * 10) / 10 + ' anni' : 'libera'}</b>
+        <span class="pass-lab">Capitale</span><b>${s.cassa ? mln(s.cassa) : '0,8 M€'}</b><i class="barcode"></i></span></button>`).join('')}</div>
     <div class="pannello mt"><div class="form">
       <label class="campo">Nome della compagnia<input id="nNome" value="${UI.scenarioSel === 'crisi' ? 'Aliseo Airlines' : 'Volaria'}" maxlength="30"></label>
       <label class="campo">Codice volo (2 lettere)<input id="nCodice" value="${UI.scenarioSel === 'crisi' ? 'AL' : 'VL'}" maxlength="2"></label>
@@ -992,8 +1024,43 @@ async function menuIniziale() {
     ${classifica.length ? `<h2>Classifica</h2><div class="pannello"><table><tbody>${classifica.slice(0, 10).map((x, i) => `<tr><td>${i + 1}</td><td>${h(x.nome)}</td><td>${h(D.SCENARI[x.scenario]?.nome || '')}</td><td class="num">${x.giorni} giorni</td><td class="num"><b>${num(x.punteggio)}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
     <p class="nota" style="color:#8ea0bb">Comandi: barra spaziatrice = pausa, tasti 1-2-3 = velocità. La partita si salva da sola ogni giorno di gioco.</p>
   </div>`;
+  avviaCielo(m);
+}
+// Cielo del menu: aeroporti come punti e voli che disegnano rotte ad arco sul planisfero
+let cieloAnim = 0;
+function avviaCielo(contenitore) {
+  cancelAnimationFrame(cieloAnim);
+  const cv = document.createElement('canvas'); cv.className = 'cielo'; cv.setAttribute('aria-hidden', 'true');
+  contenitore.prepend(cv);
+  const ctx = cv.getContext('2d'), aero = Object.values(AP), fermo = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0, H = 0;
+  const dim = () => { const r = window.devicePixelRatio || 1; W = cv.clientWidth; H = cv.clientHeight; cv.width = W * r; cv.height = H * r; ctx.setTransform(r, 0, 0, r, 0, 0); };
+  const xy = ([la, lo]) => [(lo + 180) / 360 * W, (75 - la) / 135 * H];
+  const nuovo = () => { let a, b; do { a = aero[Math.floor(Math.random() * aero.length)]; b = aero[Math.floor(Math.random() * aero.length)]; } while (a === b || SIM.km(a.iata, b.iata) < 1500); return { a, b, p: 0, v: 0.0025 + Math.random() * 0.003 }; };
+  const voli = Array.from({ length: 14 }, () => { const v = nuovo(); v.p = Math.random(); return v; });
+  const disegna = () => {
+    if (!cv.isConnected) return;
+    if (cv.clientWidth !== W || cv.clientHeight !== H) dim();
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(160,185,220,.35)';
+    for (const a of aero) { const [x, y] = xy([a.lat, a.lon]); ctx.fillRect(x - 1, y - 1, 2, 2); }
+    for (const v of voli) {
+      const n = 40, fino = Math.min(1, v.p), coda = Math.max(0, v.p - 0.45);
+      let prec = null;
+      for (let i = 0; i <= n; i++) {
+        const f = coda + (fino - coda) * i / n, pt = xy(puntoArco(v.a, v.b, f));
+        if (prec && Math.abs(pt[0] - prec[0]) < W / 2) { ctx.strokeStyle = `rgba(255,201,41,${0.05 + 0.55 * i / n})`; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(prec[0], prec[1]); ctx.lineTo(pt[0], pt[1]); ctx.stroke(); }
+        prec = pt;
+      }
+      if (v.p <= 1) { const [x, y] = xy(puntoArco(v.a, v.b, fino)); ctx.fillStyle = '#ffc929'; ctx.beginPath(); ctx.arc(x, y, 2.4, 0, 7); ctx.fill(); }
+      if (!fermo) { v.p += v.v; if (v.p > 1.45) Object.assign(v, nuovo()); }
+    }
+    if (!fermo) cieloAnim = requestAnimationFrame(disegna);
+  };
+  dim(); disegna();
 }
 function avviaPartita(g) {
+  cancelAnimationFrame(cieloAnim);
   G = SIM.migra(g); G._nuove = []; vel = 0; bozza = null; UI.aereoSel = null;
   $('#menu-iniziale').hidden = true; $('#app').hidden = false;
   $('#nomeCompagnia').textContent = G.nome; $('#scenarioNome').textContent = SCEN().nome;
@@ -1008,6 +1075,7 @@ function allinea(i) {
   const n = bozza.giorni.length, succ = bozza.giorni[(i + 1) % n];
   if (n > 1 && succ !== bozza.giorni[i] && succ.scali.length === 1) succ.scali[0] = bozza.giorni[i].scali.at(-1);
 }
+const copiaGiorno = g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice() });
 
 /* ---------- Azioni ---------- */
 const AZ = {
@@ -1042,7 +1110,7 @@ const AZ = {
   },
   'conferma-cabina': el => { if (esito(SIM.A.riconfigura(G, el.dataset.id, leggiCab()))) { chiudiModale(); render(); } },
   'cab-preset': el => { const c = SIM.cabinaStandard($('#modale').dataset.mod, el.dataset.p); for (const x of CL) $('#cab' + x).value = c[x]; aggiornaConfig(); },
-  'cab-riempi': () => { const mod = $('#modale').dataset.mod, c = leggiCab(); $('#cabY').value = Math.max(0, Math.floor(MOD[mod].spazio - c.J * CLS.J.spazio - c.W * CLS.W.spazio + 1e-9)); aggiornaConfig(); },
+  'cab-riempi': () => { const mod = $('#modale').dataset.mod, c = leggiCab(); $('#cabY').value = Math.max(0, Math.floor(MOD[mod].spazio - c.J * SIM.spazioPosto(mod, 'J') - c.W * SIM.spazioPosto(mod, 'W') + 1e-9)); aggiornaConfig(); },
   compra: el => formAcquisto({ mod: el.dataset.mod }),
   'compra-usato': el => { const o = G.mercato.find(x => x.id === el.dataset.id); formAcquisto({ mod: o.mod, usato: o.id }); },
   'conferma-acquisto': el => {
@@ -1052,18 +1120,26 @@ const AZ = {
   },
   'sel-aereo': el => { UI.aereoSel = el.dataset.id; bozza = null; if (pagina !== 'programmazione') location.hash = '#/programmazione'; else render(); },
   'p-giorno': el => { bozza.sel = +el.dataset.i; aggiornaEditor(); },
-  'p-nuovo-giorno': () => { const fine = bozza.giorni.at(-1).scali.at(-1); bozza.giorni.push({ inizio: bozza.giorni.at(-1).inizio, scali: [fine] }); bozza.sel = bozza.giorni.length - 1; aggiornaEditor(); },
-  'p-togli-giorno': () => { bozza.giorni.splice(bozza.sel, 1); bozza.sel = Math.max(0, bozza.sel - 1); aggiornaEditor(); },
+  'p-copia': el => {
+    const da = bozza.sel, dove = { succ: [(da + 1) % 7], feriali: [0, 1, 2, 3, 4], weekend: [5, 6], tutti: [0, 1, 2, 3, 4, 5, 6] }[el.dataset.dove].filter(i => i !== da);
+    for (const i of dove) bozza.giorni[i] = copiaGiorno(bozza.giorni[da]);
+    const g = bozza.giorni[da], aperto = g.scali[0] !== g.scali.at(-1);
+    toast(aperto && dove.length > 1 ? `${GS[da]} parte da ${g.scali[0]} e finisce a ${g.scali.at(-1)}: copiato su più giorni di fila la settimana non torna, sistema i giorni successivi` : `${GS[da]} copiato su ${dove.map(i => GS3[i].toLowerCase()).join(', ')}`, aperto && dove.length > 1 ? 'evento' : 'buona'); aggiornaEditor();
+  },
   'p-aggiungi': () => { const d = $('#pDest').value; if (d) { bozza.giorni[bozza.sel].scali.push(d); allinea(bozza.sel); aggiornaEditor(); } },
   'p-rientra': el => { bozza.giorni[bozza.sel].scali.push(el.dataset.b); allinea(bozza.sel); aggiornaEditor(); },
-  'p-togli': () => { const s = bozza.giorni[bozza.sel].scali; if (s.length > 1) s.pop(); allinea(bozza.sel); aggiornaEditor(); },
-  'p-svuota': () => { const g = bozza.giorni[bozza.sel]; g.scali = g.scali.slice(0, 1); allinea(bozza.sel); aggiornaEditor(); },
-  'p-ripeti': () => { const s = bozza.giorni[bozza.sel].scali; if (s.at(-1) === s[0]) s.push(...s.slice(1)); aggiornaEditor(); },
+  'p-togli': () => { const g = bozza.giorni[bozza.sel]; if (g.scali.length > 1) g.scali.pop(); g.attese = (g.attese || []).slice(0, g.scali.length - 1); allinea(bozza.sel); aggiornaEditor(); },
+  'p-svuota': () => { const g = bozza.giorni[bozza.sel]; g.scali = g.scali.slice(0, 1); g.attese = []; allinea(bozza.sel); aggiornaEditor(); },
+  'p-ripeti': () => {
+    const g = bozza.giorni[bozza.sel], sc = g.scali; if (sc.at(-1) !== sc[0]) return;
+    const n = sc.length - 1, att = Array.from({ length: n }, (_, i) => g.attese?.[i] || 0);
+    sc.push(...sc.slice(1)); g.attese = [...att, 0, ...att.slice(1)]; aggiornaEditor();
+  },
   'p-annulla': () => { bozza = null; render(); },
   'p-salva': () => {
-    const r = SIM.salvaProgramma(G, bozza.aeId, { turn: bozza.turn, giorni: bozza.giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice() })) });
+    const r = SIM.salvaProgramma(G, bozza.aeId, { turn: bozza.turn, giorni: bozza.giorni.map(copiaGiorno) });
     if (r.E.length) return toast(r.E[0], 'err');
-    toast('Rotazione salvata: i voli sono in vendita', 'buona'); suono('click'); bozza = null; dopoAzione();
+    toast(`Programma salvato: ${r.voliSett} voli a settimana in vendita`, 'buona'); suono('click'); bozza = null; dopoAzione();
   },
   'apri-rotta': () => formApriRotta(),
   'conferma-rotta': () => { const a = $('#rDa').value, b = $('#rA').value; if (!b) return toast('Scegli la destinazione', 'err'); if (esito(SIM.A.apriRotta(G, a, b))) { chiudiModale(); dopoAzione(); } },
@@ -1119,12 +1195,24 @@ document.addEventListener('change', ev => {
   if (el.dataset.azChange === 'servizio') { G.servizio = el.value; toast('Servizio di bordo aggiornato'); return; }
   if (el.id === 'cmAmbito') { aggiornaObiettivi(); stimaCampagna(); return; }
   if (el.id === 'cmOb' || el.id === 'cmGiorni' || el.id === 'cmBudget') { stimaCampagna(); return; }
+  if (el.classList.contains('ora-volo')) {
+    const g = bozza.giorni[bozza.sel], k = +el.dataset.leg, ae = G.aerei.find(a => a.id === bozza.aeId);
+    const att = (g.attese || []).slice(); att[k] = 0;
+    const minimo = SIM.legsGiorno(ae, { ...g, attese: att }, bozza.turn)[k].dep;
+    let voluto = SIM.minDaOra(el.value || '00:00') + 1440 * Math.floor(minimo / 1440);
+    if (voluto < minimo && voluto + 1440 - minimo <= 720) voluto += 1440;
+    const extra = voluto - minimo;
+    if (extra < 0) { toast(`Questo volo può partire al più presto alle ${SIM.oraDaMin(minimo)} (arrivo del volo prima + turnaround)`, 'err'); att[k] = 0; }
+    else if (extra > 720) { toast('Al massimo 12 ore a terra tra un volo e l’altro', 'err'); att[k] = g.attese?.[k] || 0; }
+    else att[k] = extra;
+    g.attese = att; allinea(bozza.sel); aggiornaEditor(); return;
+  }
   if (el.id === 'pInizio') { bozza.giorni[bozza.sel].inizio = el.value || bozza.giorni[bozza.sel].inizio; aggiornaEditor(); return; }
   if (el.id === 'pTurn') { bozza.turn = +el.value; aggiornaEditor(); return; }
   if (el.id === 'pPartenza') {
     const g = bozza.giorni[bozza.sel];
-    if (g.scali.length > 1) { conferma('Cambiare la base di partenza?', 'Le tratte di questo giorno verranno tolte.', 'Cambia', () => { g.scali = [el.value]; aggiornaEditor(); }); return; }
-    g.scali = [el.value]; aggiornaEditor(); return;
+    if (g.scali.length > 1) { conferma('Cambiare l’aeroporto di partenza?', 'I voli di questo giorno verranno tolti.', 'Cambia', () => { g.scali = [el.value]; g.attese = []; aggiornaEditor(); }); return; }
+    g.scali = [el.value]; g.attese = []; aggiornaEditor(); return;
   }
   if (el.id === 'rDa' || el.id === 'rA') { if (el.id === 'rDa') { const a = el.value; $('#rA').innerHTML = '<option value="">— scegli —</option>' + opzioniAeroporti(perContinente().filter(x => x.iata !== a), ''); } infoRotta(); return; }
 });
@@ -1134,6 +1222,7 @@ document.addEventListener('input', ev => {
   if (ev.target.id === 'cmBudget') stimaCampagna();
 });
 document.addEventListener('keydown', ev => {
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.classList?.contains('sett-riga')) { ev.preventDefault(); ev.target.click(); return; }
   if (ev.key === 'Escape' && !$('#modale').hidden) return chiudiModale();
   if (!G || inputAttivo() || !$('#modale').hidden) return;
   if (ev.code === 'Space') { ev.preventDefault(); vel = vel ? 0 : 1; aggiornaVel(); }

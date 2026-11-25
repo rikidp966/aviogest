@@ -5,7 +5,8 @@ const SIM = (() => {
   const D = typeof DATI !== 'undefined' ? DATI : require('./data.js');
   const AP = D.AEROPORTI, MOD = D.MODELLI, CLS = D.CLASSI;
   const CL = ['J', 'W', 'Y'];
-  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 3;
+  const MIN = 6e4, ORA = 36e5, GIORNO = 864e5, VERSIONE = 4;
+  const GIORNI_SETT = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
   const FDP = 13 * 60, PERSONE_PER_TURNO = 2.4;
   const rnd = Math.random;
   const pad = n => String(n).padStart(2, '0');
@@ -21,6 +22,7 @@ const SIM = (() => {
   // minuto del giorno, nell'ora locale di un aeroporto, di un orario espresso in minuti dell'ora della base
   const oraLocaleMin = (minBase, iata) => (((minBase + (AP[iata].fuso - FUSO) * 60) % 1440) + 1440) % 1440;
   const oraLocaleT = (t, iata) => oraIn(t, AP[iata].fuso);
+  const giornoSett = t => (loc(t).getUTCDay() + 6) % 7;
   const giorniTra = (a, b) => Math.round((mezzanotte(b) - mezzanotte(a)) / GIORNO);
   const chiave = (a, b) => a < b ? a + '-' + b : b + '-' + a;
   const chiaveCitta = (a, b) => { const x = AP[a].citta, y = AP[b].citta; return x < y ? x + '|' + y : y + '|' + x; };
@@ -101,11 +103,17 @@ const SIM = (() => {
       leasing: modo === 'leasing' ? (opz.leasing || m.leasing) : 0, valore: modo === 'proprieta' ? (opz.prezzo || m.prezzo) : 0,
       ore: opz.ore || 0, cicli: Math.round((opz.ore || 0) * 0.8), oreDaCheck: opz.oreDaCheck ?? Math.round(rnd() * 150),
       stato: opz.consegna ? 'consegna' : 'attivo', fino: opz.consegna || 0, base, pos: base,
-      prog: { turn: 40, ancora: mezzanotte(G.ora), giorni: [{ inizio: '06:30', scali: [base] }] }, lavori: null, autoCheck: true
+      prog: settimanaVuota(base, MOD[modello].lungo ? 90 : MOD[modello].tipo === 'ATR' ? 30 : 40), lavori: null, autoCheck: true
     };
     G.aerei.push(ae); return ae;
   }
   const flottaAttiva = G => G.aerei.filter(a => a.stato !== 'venduto');
+  const settimanaVuota = (base, turn = 40) => ({ turn, giorni: GIORNI_SETT.map(() => ({ inizio: '06:30', scali: [base], attese: [] })) });
+  // accetta anche un solo giorno (lo ripete per tutta la settimana)
+  function normalizza(prog) {
+    const giorni = prog.giorni.length === 1 ? GIORNI_SETT.map(() => prog.giorni[0]) : prog.giorni;
+    return { turn: prog.turn, giorni: giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice(), attese: (g.attese || []).slice(0, Math.max(0, g.scali.length - 1)) })) };
+  }
 
   /* ---------- Personale per base ---------- */
   const squadraVuota = () => ({ CMD: {}, FO: {}, CC: 0, ADV: 0 });
@@ -116,6 +124,7 @@ const SIM = (() => {
   function legsGiorno(ae, g, turn) {
     const legs = []; let t = minDaOra(g.inizio);
     for (let i = 0; i < g.scali.length - 1; i++) {
+      if (i > 0) t += Math.max(0, g.attese?.[i] || 0);
       const da = g.scali[i], a = g.scali[i + 1], dur = durata(km(da, a), ae.modello);
       legs.push({ da, a, dep: t, arr: t + dur, dur }); t += dur + turn;
     }
@@ -124,6 +133,7 @@ const SIM = (() => {
   // Turni di servizio su tutto il ciclo. Massimo 13 h (17 h con un pilota in più se c'è un volo di lungo raggio).
   // Un nuovo equipaggio entra in una base; fuori base solo dopo un volo di lungo raggio o un riposo lungo (equipaggio in albergo).
   function pianoCiclo(G, ae, prog = ae.prog) {
+    if (prog !== ae.prog && prog.giorni.length === 1) prog = normalizza(prog);
     const memo = JSON.stringify(prog) + '|' + G.basi.join(',');
     if (prog === ae.prog && ae._piano && ae._piano.k === memo) return ae._piano.p;
     const n = prog.giorni.length, legs = [], E = [], turni = [], mappa = {};
@@ -159,7 +169,7 @@ const SIM = (() => {
     if (prog === ae.prog) ae._piano = { k: memo, p };
     return p;
   }
-  const indiceCiclo = (prog, giorno) => { const n = prog.giorni.length; return ((Math.round((giorno - prog.ancora) / GIORNO) % n) + n) % n; };
+  const indiceCiclo = (prog, giorno) => { const n = prog.giorni.length; if (prog.ancora == null && n === 7) return giornoSett(giorno); return ((Math.round((giorno - (prog.ancora ?? 0)) / GIORNO) % n) + n) % n; };
   const giornoDelCiclo = (ae, giorno) => ae.prog.giorni[indiceCiclo(ae.prog, giorno)];
   const tratteDi = (ae, giorno) => legsGiorno(ae, giornoDelCiclo(ae, giorno), ae.prog.turn);
   // Media giornaliera sul ciclo (per fabbisogni e statistiche)
@@ -175,7 +185,7 @@ const SIM = (() => {
   function partenzePerScalo(G, sostituisci) {
     const out = {};
     for (const ae of flottaAttiva(G)) {
-      const prog = sostituisci && sostituisci.id === ae.id ? sostituisci.prog : ae.prog, max = {};
+      const prog = sostituisci && sostituisci.id === ae.id ? normalizza(sostituisci.prog) : ae.prog, max = {};
       for (const g of prog.giorni) { const c = {}; for (const l of legsGiorno(ae, g, prog.turn)) c[l.da] = (c[l.da] || 0) + 1; for (const i in c) max[i] = Math.max(max[i] || 0, c[i]); }
       for (const i in max) out[i] = (out[i] || 0) + max[i];
     }
@@ -183,13 +193,15 @@ const SIM = (() => {
   }
   const fineTxt = m => oraDaMin(m) + (m >= 1440 ? ' del giorno dopo' : '');
   function validaProgramma(G, ae, prog) {
+    prog = normalizza(prog);
     const E = [], W = [], m = MOD[ae.modello], n = prog.giorni.length;
-    if (n < 1 || n > 7) E.push('Il ciclo deve durare da 1 a 7 giorni');
+    if (n !== 7) E.push('La programmazione è settimanale: servono 7 giorni');
     if (m.lungo && prog.turn < 75) E.push('Un aereo di lungo raggio ha bisogno di almeno 75 minuti di turnaround');
     else if (prog.turn < 35) W.push('Turnaround sotto i 35 minuti: i ritardi saranno più frequenti e si propagheranno');
     prog.giorni.forEach((g, i) => {
       const legs = legsGiorno(ae, g, prog.turn), prec = prog.giorni[(i - 1 + n) % n];
-      const tag = n > 1 ? `Giorno ${i + 1}: ` : '';
+      const tag = `${GIORNI_SETT[i]}: `;
+      if ((g.attese || []).some(x => !(x >= 0 && x <= 720))) E.push(`${tag}le attese a terra devono essere tra 0 e 12 ore`);
       if (g.scali[0] !== prec.scali.at(-1)) E.push(`${tag}deve partire da ${prec.scali.at(-1)}, dove si trova l’aereo`);
       for (const l of legs) {
         if (!G.rotte[chiave(l.da, l.a)]) E.push(`${tag}la rotta ${l.da}–${l.a} non è aperta`);
@@ -201,7 +213,7 @@ const SIM = (() => {
         if (legs.at(-1).arr > 2160) E.push(`${tag}la giornata finisce troppo tardi (${fineTxt(legs.at(-1).arr)})`);
         const succ = prog.giorni[(i + 1) % n], ls = legsGiorno(ae, succ, prog.turn);
         if (ls.length && 1440 + ls[0].dep < legs.at(-1).arr + prog.turn)
-          E.push(`${tag}l’ultimo volo arriva alle ${fineTxt(legs.at(-1).arr)}: il giorno ${(i + 1) % n + 1} non può iniziare alle ${succ.inizio}`);
+          E.push(`${tag}l’ultimo volo arriva alle ${fineTxt(legs.at(-1).arr)}: ${GIORNI_SETT[(i + 1) % n].toLowerCase()} non può iniziare alle ${succ.inizio}`);
       }
     });
     const piano = pianoCiclo(G, ae, prog);
@@ -213,13 +225,12 @@ const SIM = (() => {
     const dep = partenzePerScalo(G, { id: ae.id, prog });
     for (const [i, c] of Object.entries(dep)) if (AP[i].slot && c > (G.slot[i] || 0)) E.push(`${i} è un aeroporto a slot: servono ${c} slot giornalieri, ne hai ${G.slot[i] || 0}`);
     const giorni = prog.giorni.map((g, i) => ({ legs: legsGiorno(ae, g, prog.turn), turni: piano.turni.filter(t => t.legs[0].giorno === i) }));
-    return { E: [...new Set(E)], W, giorni, piano };
+    return { E: [...new Set(E)], W, giorni, piano, voliSett: piano.legs.length, oreSett: piano.legs.reduce((x, l) => x + l.dur, 0) / 60 };
   }
   function salvaProgramma(G, aeId, prog) {
     const ae = G.aerei.find(a => a.id === aeId), v = validaProgramma(G, ae, prog);
     if (v.E.length) return v;
-    // "Giorno 1" del ciclo coincide con oggi
-    ae.prog = { turn: prog.turn, ancora: mezzanotte(G.ora), giorni: prog.giorni.map(g => ({ inizio: g.inizio, scali: g.scali.slice() })) };
+    ae.prog = normalizza(prog);
     ae.base = prog.giorni[0].scali[0]; delete ae._piano;
     rigeneraAereo(G, ae); G._fab = null;
     return v;
@@ -847,7 +858,7 @@ const SIM = (() => {
     const piani = [
       ['A320', 'leasing', [['06:30', ['FCO', 'LIN', 'FCO', 'CDG', 'FCO']]]],
       ['A320', 'proprieta', [['07:10', ['FCO', 'CTA', 'FCO', 'BCN', 'FCO']]]],
-      ['A320', 'leasing', [['06:50', ['MXP', 'NAP', 'MXP', 'FCO']], ['07:00', ['FCO', 'CTA', 'FCO', 'MXP']]]],
+      ['A320', 'leasing', [['06:50', ['MXP', 'NAP', 'MXP', 'FCO']], ['07:00', ['FCO', 'CTA', 'FCO', 'MXP']], ['06:50', ['MXP', 'NAP', 'MXP', 'FCO']], ['07:00', ['FCO', 'CTA', 'FCO', 'MXP']], ['06:50', ['MXP', 'NAP', 'MXP', 'FCO']], ['07:00', ['FCO', 'CTA', 'FCO', 'MXP']], ['08:00', ['MXP', 'NAP', 'MXP']]]],
       ['A321', 'leasing', [['07:45', ['FCO', 'LHR', 'FCO', 'PMO', 'FCO']]]],
       ['A319', 'proprieta', [['07:30', ['FCO', 'AMS', 'FCO', 'CAG', 'FCO']]]],
       ['ATR72', 'leasing', [['07:00', ['FCO', 'BRI', 'FCO', 'VCE', 'FCO']]]],
@@ -857,7 +868,7 @@ const SIM = (() => {
       const base = giorni[0][1][0];
       const ae = aggiungiAereo(G, mod, modo, base, { eta: 6 + Math.floor(rnd() * 10), ore: 15000 + rnd() * 15000, oreDaCheck: 200 + rnd() * 350, cab: cabinaStandard(mod, 'mista') });
       if (modo === 'proprieta') ae.valore = MOD[mod].prezzo * 0.55;
-      ae.prog = { turn: 40, ancora: mezzanotte(G.ora), giorni: giorni.map(([inizio, scali]) => ({ inizio, scali })) };
+      ae.prog = normalizza({ turn: mod === 'ATR72' ? 30 : 40, giorni: giorni.map(([inizio, scali]) => ({ inizio, scali })) });
       for (const g of giorni) for (let i = 0; i < g[1].length - 1; i++) apri(g[1][i], g[1][i + 1]);
     }
     G.aerei[6].autoCheck = false; G.aerei[6].oreDaCheck = 640;
@@ -871,7 +882,11 @@ const SIM = (() => {
     if (G.oggi && G.oggi.costi && G.oggi.costi.marketing == null) G.oggi.costi.marketing = 0;
     G.fuso ??= AP[G.basi[0]].fuso; impostaFuso(G);
     if (G.v >= VERSIONE) return G;
-    if (G.v >= 2) return migraV3(G);
+    if (!G.v || G.v < 2) migraV2(G);
+    if (G.v < 3) migraV3(G);
+    return migraV4(G);
+  }
+  function migraV2(G) {
     const oggi = mezzanotte(G.ora), b0 = G.basi[0], vecchio = G.personale || {};
     G.hub ||= []; G.numeri ||= {}; G.seqVolo = Math.max(G.seqVolo || 0, 101);
     G.personale = { [b0]: { CMD: vecchio.CMD || {}, FO: vecchio.FO || {}, CC: vecchio.CC || 0, ADV: vecchio.ADV || 0 } };
@@ -888,19 +903,25 @@ const SIM = (() => {
     for (const m of G.mercato || []) m.cab ||= cabinaStandard(m.mod, 'economy');
     const og = G.oggi || {};
     G.oggi = { ...nuovoGiorno(), voli: og.voli || 0, canc: og.canc || 0, pax: og.pax || 0, posti: og.posti || 0, puntuali: og.puntuali || 0, ricavi: og.ricavi || 0, costi: { ...nuovoGiorno().costi, ...(og.costi || {}) } };
-    G.voli = []; G.genFino = 0;
-    for (let i = 0; i <= 2; i++) generaGiorno(G, giornoDopo(oggi, i));
-    G.v = VERSIONE; vendite(G);
-    notizia(G, 'Partita aggiornata: cabine a tre classi, cicli su più giorni, equipaggi per base e hub, voli in tutto il mondo.', 'info');
-    return G;
+    G.voli = []; G.genFino = 0; G.v = 2;
   }
   // Versione 3: orologio sul fuso della base, voli oltre la mezzanotte, mondo intero
   function migraV3(G) {
     for (const ae of G.aerei) { ae.prog.ancora = mezzanotte(ae.prog.ancora + 12 * ORA); delete ae._piano; }
+    G.v = 3;
+  }
+  // Versione 4: programmazione settimanale (lunedì-domenica) con orari scelti volo per volo
+  function migraV4(G) {
+    const lun = mezzanotte(G.ora) - giornoSett(G.ora) * GIORNO;
+    for (const ae of G.aerei) {
+      const p = ae.prog;
+      ae.prog = normalizza({ turn: p.turn, giorni: GIORNI_SETT.map((_, d) => p.giorni[indiceCiclo(p, lun + d * GIORNO)]) });
+      delete ae._piano;
+    }
     G.voli = G.voli.filter(v => v.stato !== 'prog'); G.genFino = 0;
     for (let i = -1; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
     G.v = VERSIONE; G._fab = null; vendite(G);
-    notizia(G, 'Ora puoi volare in tutto il mondo: nuovi aeroporti, aerei di lungo raggio e orari con i fusi orari.', 'info');
+    notizia(G, 'Programmazione settimanale: ogni aereo ha ora un programma da lunedì a domenica, con orari scelti volo per volo. Controlla le rotazioni.', 'info', true);
     return G;
   }
 
@@ -1056,6 +1077,6 @@ const SIM = (() => {
     }
   };
 
-  return { impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze, fabbisogno, copertura, squadra, costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze, fabbisogno, copertura, squadra, costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;
