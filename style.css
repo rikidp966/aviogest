@@ -474,3 +474,63 @@ table.roster tr.scoperto td { background: var(--err-bg); }
 .turno-chip { display: block; font: 500 11px/1.3 var(--f-mono); background: var(--surface-2); border: 1px solid var(--bordo); border-radius: 4px; padding: 3px 5px; margin-bottom: 3px; white-space: nowrap; }
 .turno-chip b { color: var(--accento); }
 tr.scoperto .turno-chip { background: var(--surface); border-color: var(--err); }
+
+/* ---------- Uso semplice: menu Avanzate, semafori, consigli, missioni, guida, impostazioni ---------- */
+details.avanzate { margin: 4px 0; }
+details.avanzate > summary { list-style: none; cursor: pointer; color: var(--barra-testo); padding: 7px 10px; border-radius: 6px; font: 600 15px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .06em; display: flex; align-items: center; gap: 10px; }
+details.avanzate > summary::-webkit-details-marker { display: none; }
+details.avanzate > summary::after { content: "▸"; margin-left: auto; font-size: 12px; transition: transform .15s; }
+details.avanzate[open] > summary::after { transform: rotate(90deg); }
+details.avanzate > summary:hover { background: var(--barra-2); color: #fff; }
+details.avanzate > summary svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; opacity: .85; }
+details.avanzate a { padding-left: 22px; font-size: 14px; }
+.semaforo { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: 0; flex: none; box-shadow: 0 0 0 2px var(--surface); }
+.semaforo.verde { background: var(--ok); } .semaforo.giallo { background: var(--segnale-2); } .semaforo.rosso { background: var(--err); } .semaforo.grigio { background: var(--testo-3); }
+.salute { display: flex; align-items: center; font-size: 13px; margin-top: 6px; padding: 5px 9px; border-radius: 6px; background: var(--surface-2); }
+.salute.verde { background: var(--ok-bg); color: var(--ok); } .salute.giallo { background: var(--warn-bg); color: var(--warn); } .salute.rosso { background: var(--err-bg); color: var(--err); }
+.sal-txt.giallo { color: var(--warn); } .sal-txt.rosso { color: var(--err); }
+.lista-aerei .semaforo { margin-right: 6px; }
+.griglia.sopra { margin-bottom: 0; }
+.consigli { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.consigli li { display: grid; grid-template-columns: auto 1fr; gap: 6px 4px; align-items: start; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border-left: 3px solid var(--testo-3); font-size: 14px; }
+.consigli li.rosso { border-left-color: var(--err); background: var(--err-bg); }
+.consigli li.giallo { border-left-color: var(--segnale-2); background: var(--warn-bg); }
+.consigli li .semaforo { margin-top: 5px; }
+.cons-az { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; }
+.tutto-ok { color: var(--ok); background: var(--ok-bg); padding: 10px 12px; border-radius: 8px; margin: 0; }
+.pilota { margin: 10px 0 0; }
+.missioni { display: flex; flex-direction: column; gap: 10px; }
+.missione { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--bordo); background: var(--surface-2); }
+.missione b { font: 700 16px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .04em; }
+.missione .premio { font: 600 12px/1.4 var(--f-mono); color: var(--ok); white-space: nowrap; }
+.modelli-rot { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.modelli-rot button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px; height: auto; border: 1px solid var(--bordo); background: var(--surface-2); border-radius: 8px; }
+.modelli-rot button i { font-style: normal; font: 700 20px/1 var(--f-mono); color: var(--accento); }
+.modelli-rot button b { font: 700 15px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .05em; }
+.modelli-rot button small { color: var(--testo-2); font-size: 12px; line-height: 1.3; }
+.modelli-rot button.on { border-color: var(--segnale-2); background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--segnale-2); }
+.guida-descr { font: 600 17px/1.3 var(--f-testo); margin: 0 0 8px; }
+.guida-giorni { list-style: none; padding: 0; margin: 0 0 4px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.guida-giorni li { display: grid; grid-template-columns: 76px 1fr; gap: 8px; }
+.guida-giorni li b { white-space: nowrap; }
+.guida-giorni .mono { overflow-wrap: anywhere; }
+.stime { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.stime button { height: auto; padding: 5px 10px; font: 500 13px/1.2 var(--f-mono); border-radius: 6px; }
+.stime button.buono b { color: var(--ok); } .stime button.medio b { color: var(--warn); } .stime button.basso b { color: var(--err); }
+.stime button.on { border-color: var(--segnale-2); box-shadow: inset 0 0 0 1px var(--segnale-2); }
+.interruttore { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--bordo); cursor: pointer; }
+.interruttore:last-of-type { border-bottom: 0; }
+.interruttore input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.interruttore .lev { width: 42px; height: 24px; border-radius: 12px; background: var(--bordo-forte); position: relative; transition: background .15s; margin-top: 2px; }
+.interruttore .lev::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.interruttore input:checked + .lev { background: var(--ok); }
+.interruttore input:checked + .lev::after { transform: translateX(18px); }
+.interruttore input:focus-visible + .lev { outline: 2px solid var(--accento); outline-offset: 2px; }
+.interruttore b { display: block; font-size: 15px; }
+.interruttore small { display: block; color: var(--testo-2); font-size: 13px; line-height: 1.4; margin-top: 2px; }
+@media (max-width: 800px) {
+  .cons-az button { flex: 1 1 auto; }
+  .modelli-rot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guida-giorni li { grid-template-columns: 56px 1fr; }
+}
+.missione .riga { gap: 10px; align-items: baseline; }
