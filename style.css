@@ -681,3 +681,10 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
 .stagioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .carta.accordo p { margin: 6px 0; font-size: 14px; line-height: 1.45; }
 @media (max-width: 800px) { .giornale { padding: 16px; } .giornale header b { font-size: 24px; } .g-titolo { font-size: 22px; } .stagioni .segmenti { width: 100%; } .stagioni .segmenti button { flex: 1; } }
+/* ---------- Telefono: ritocchi per orari stagionali, biglietto e selettori ---------- */
+@media (max-width: 800px) {
+  .stagioni .segmenti button { white-space: normal; min-width: 0; line-height: 1.25; height: auto; padding: 8px 6px; }
+  table.biglietto td, table.biglietto td.num { white-space: normal; }
+  #vista select { min-height: 40px; }
+  .pilota a { display: inline-block; padding: 12px 4px; margin: -12px -4px; }
+}
