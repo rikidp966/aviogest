@@ -85,7 +85,7 @@ VISTE.prodotto = () => {
       const s = statsRotta(rk), [a, b] = rk.split('-'), r = G.rotte[rk];
       const p = s.pax ? { ric: s.ricavi / s.pax, cost: s.costi / s.pax } : null;
       return `<label class="campo">Rotta<select id="rottaBiglietto">${opzioni(rotte.map(k => [k, k.replace('-', '–')]), rk)}</select></label>
-        <table class="mt"><tbody>
+        <table class="mt biglietto"><tbody>
         <tr><td>Tariffe in vendita</td><td class="num">${CL.map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}</td></tr>
         ${p ? `<tr><td>Incasso medio a passeggero <span class="piccolo muto">(biglietto + extra, ultimi 7 giorni)</span></td><td class="num"><b>${eur(p.ric)}</b></td></tr>
         <tr><td>Costi del volo a passeggero</td><td class="num">−${eur(p.cost)}</td></tr>
