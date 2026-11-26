@@ -149,22 +149,7 @@ VISTE.finanze = () => {
   ${pannelloBorsa()}`;
 };
 
-/* Concorrenza */
-VISTE.concorrenza = () => {
-  const domani = SIM.giornoDopo(SIM.mezzanotte(G.ora)), mie = [...SIM.rotteInEsercizio(G)];
-  return `<div class="testata"><h1>Concorrenza</h1></div>
-  <div class="carte">${G.rivali.map(r => `<div class="pannello carta"><div class="titolo"><span class="pallino" style="background:${r.colore}"></span>${h(r.nome)}</div>
-    <div class="riga"><span>Hub</span><span>${r.hub} · ${h(citta(r.hub))}</span></div>
-    <div class="riga"><span>Reputazione</span><span>${r.rep}/100</span></div>
-    <div class="riga"><span>Livello prezzi</span><span>${r.prezzo < 0.9 ? 'low cost' : r.prezzo > 1.1 ? 'premium' : 'nella media'} (${Math.round(r.prezzo * 100)}%)</span></div>
-    <div class="riga"><span>Rotte</span><span>${Object.keys(r.rotte).length}</span></div>
-    <p class="piccolo muto">${Object.entries(r.rotte).map(([k, x]) => `${k.replace('-', '–')}${x.guerraFino ? ' (sconti!)' : ''}`).join(' · ')}</p></div>`).join('')}</div>
-  <div class="pannello mt"><h2>Quote di mercato sulle tue rotte (domani)</h2><div class="tab-wrap">${mie.length ? `<table><thead><tr><th>Rotta</th><th>Tu</th><th>Concorrenti</th><th>Altri mezzi e compagnie</th></tr></thead><tbody>
-    ${mie.map(k => { const [a, b] = k.split('-'), f = Math.max(1, Math.round(freqRotta(k) / 2)), am = SIM.analisiMercato(G, a, b, domani, f, G.rotte[k].pY);
-      return `<tr><td><b>${a}–${b}</b></td><td>${barretta(am.quota, null, [2, 2])}</td><td>${am.rivali.map(x => `<span class="pallino" style="background:${x.riv.colore}"></span>${h(x.riv.nome)} ${pct(x.quota)}`).join(' · ') || '<span class="muto">nessuno</span>'}</td><td>${pct(am.altri)}</td></tr>`; }).join('')}
-  </tbody></table>` : '<p class="muto">Nessuna rotta in esercizio.</p>'}</div>
-  <p class="nota">Ogni lunedì i concorrenti valutano le mosse: entrano sulle tue rotte più piene, lanciano guerre di prezzi dove sei forte e abbandonano le rotte dove perdono.</p></div>`;
-};
+/* Concorrenza: vedi ui/concorrenza.js */
 
 /* Obiettivi */
 VISTE.obiettivi = () => {

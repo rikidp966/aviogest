@@ -4,6 +4,13 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  alleanza: el => { if (esito(SIM.A.alleanza(G, el.dataset.r, el.dataset.l))) { suono('buona'); } render(); },
+  'chiudi-alleanza': el => { const R = G.rivali.find(x => x.id === el.dataset.r); conferma(`Chiudere l’accordo con ${R.nome}?`, 'Tornerete concorrenti a tutti gli effetti, le joint venture finiscono e per 60 giorni non accetteranno nuove proposte. Reputazione −1.', 'Chiudi accordo', () => { esito(SIM.A.chiudiAlleanza(G, el.dataset.r)); render(); }); },
+  jv: el => { const k = $('#jv-' + el.dataset.r)?.value; if (esito(SIM.A.jointVenture(G, el.dataset.r, k))) render(); },
+  acquisisci: el => {
+    const R = G.rivali.find(x => x.id === el.dataset.r), fl = SIM.flottaRivale(R), prezzo = SIM.prezzoAcquisto(G, R);
+    conferma(`Comprare ${R.nome} per ${eur(prezzo)}?`, `Ottieni ${fl.map(x => x.n + ' ' + MOD[x.mod].nome).join(', ')}, ${Object.keys(R.rotte).length} rotte, i suoi slot, i suoi equipaggi e la base di ${citta(R.hub)}. Gli aerei arrivano con una settimana provvisoria sulle sue rotte: controllala in Programmazione. Il concorrente sparisce dal mercato.`, 'Compra la compagnia', () => { if (esito(SIM.A.acquisisci(G, el.dataset.r))) { suono('buona'); dopoAzione(); } });
+  },
   notifiche: () => apriNotifiche(),
   'filtro-notizie': el => apriNotifiche(el.dataset.f),
   salta: el => { chiudiModale(); salta(el.dataset.s); },
