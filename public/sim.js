@@ -387,7 +387,7 @@ const SIM = (() => {
     const k = km(da, a); let dist = k <= 1500 ? 1 : (1500 / k) ** 0.5; if (A.paese !== B.paese && k > 2500) dist *= 0.85;
     let ev = 1;
     for (const e of G.eventi) if (e.tipo === 'domanda' && (e.citta === A.citta || e.citta === B.citta) && e.inizio < giorno + GIORNO && e.fine > giorno) ev *= e.fattore;
-    return 0.25 * Math.sqrt(A.pop * B.pop) * stag * dow * ev * dist;
+    return 0.25 * Math.sqrt(A.pop * B.pop) * stag * dow * ev * dist * economiaDi(G, da, a) * fattoreRotta(G, da, a);
   }
   function rivaliSu(G, da, a) {
     const kc = chiaveCitta(da, a), out = [];
@@ -399,18 +399,25 @@ const SIM = (() => {
   const maturitaRotta = (G, da, a, giorno) => { const r = G.rotte[chiave(da, a)]; return r ? clamp(0.6 + (giorno - r.aperta) / (150 * GIORNO), 0.6, 1) : 1; };
   // Quanti passeggeri sceglie il giocatore in una direzione in un giorno (penalita < 1 per i viaggi in coincidenza)
   function analisiMercato(G, da, a, giorno, freq, pY, penalita = 1, opz = {}) {
-    const k = km(da, a), ref = prezzoRif(k), mercato = domandaBase(G, da, a, giorno);
+    const k = km(da, a), ref = prezzoRif(k), Sg = G.strategia ? STR(G) : null, M = G.mod || {};
+    let mercato = domandaBase(G, da, a, giorno);
+    // senza studio di mercato le stime mostrate al giocatore usano la domanda "generica" della coppia di città
+    if (opz.stima && !studiato(G, da, a)) mercato /= fattoreRotta(G, da, a);
+    if (Sg) mercato *= Sg.domanda * (Sg.corto && k < 900 ? Sg.corto : Sg.lungo && k > 2500 ? Sg.lungo : 1);
+    if (M.sito) mercato *= 1.03;
+    const val = G.bordo ? valoreProdotto(G, k) : null, pYe = val ? pY / val.Y : pY;
     const sp = opz.senzaMarketing ? { tot: 0, bus: 0 } : spinta(G, da, a, opz.escludi, opz.extra);
     const riv = rivaliSu(G, da, a), altri = altriMezzi(da, a, k);
-    const attrP = freq > 0 ? repF(G.reputazione) * (ref / pY) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) : 0;
+    const attrP = freq > 0 ? repF(G.reputazione) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) : 0;
     let tot = attrP + altri;
     const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq); tot += at; return { ...x, at }; });
     rivali.forEach(x => x.quota = x.at / tot);
     const quota = attrP / tot, maturita = maturitaRotta(G, da, a, giorno);
-    const pax = mercato * quota * clamp((ref / pY) ** 0.8, 0.3, 1.8) * maturita * (1 + 0.3 * sp.tot);
+    const pax = mercato * quota * clamp((ref / pYe) ** 0.8, 0.3, 1.8) * maturita * (1 + 0.3 * sp.tot);
     const quote = quoteClassi(da, a);
+    if (Sg || M.fedelta) { const f = M.fedelta ? 1.12 : 1; quote.J *= (Sg ? Sg.quote.J : 1) * f; quote.W *= (Sg ? Sg.quote.W : 1) * f; quote.Y = Math.max(0.05, 1 - quote.J - quote.W); }
     if (sp.bus) { quote.J *= 1 + 1.5 * sp.bus; quote.W *= 1 + 1.5 * sp.bus; quote.Y = 1 - quote.J - quote.W; }
-    return { mercato, quota, pax, ref, km: k, rivali, altri: altri / tot, maturita, quote, spinta: sp };
+    return { mercato, quota, pax, ref, km: k, rivali, altri: altri / tot, maturita, quote, spinta: sp, val, studiato: G.studi ? studiato(G, da, a) : true };
   }
   // Spinta pubblicitaria su una direzione: tot alza l'attrattività, bus alza la quota di Business e Premium
   function spinta(G, da, a, escludi, extra) {
@@ -431,9 +438,9 @@ const SIM = (() => {
     return { tot: Math.min(tot, 0.9), bus };
   }
   // Domanda per classe, data la domanda totale e i prezzi di ciascuna classe
-  function domandaClassi(pax, quote, prezzi, ref, k = 0) {
+  function domandaClassi(pax, quote, prezzi, ref, k = 0, val = null) {
     const out = {};
-    for (const c of CL) out[c] = pax * quote[c] * (c === 'Y' ? 1 : clamp((ref * multClasse(c, k) / prezzi['p' + c]) ** CLS[c].el, 0.2, 2.5));
+    for (const c of CL) out[c] = pax * quote[c] * (c === 'Y' ? 1 : clamp((ref * multClasse(c, k) * (val ? val[c] / val.Y : 1) / prezzi['p' + c]) ** CLS[c].el, 0.2, 2.5));
     return out;
   }
   // Bersaglio di posti venduti per classe; se una cabina manca o è piena, parte dei clienti scende di classe
@@ -460,14 +467,16 @@ const SIM = (() => {
       const pm = { pJ: 0, pW: 0, pY: 0 }; for (const p of prezzi) for (const c of CL) pm['p' + c] += p['p' + c] / lista.length;
       const am = analisiMercato(G, v0.da, v0.a, g, lista.length, pm.pY);
       if (g === oggi || g === giornoDopo(oggi)) for (const v of lista) { const r = G.rotte[chiave(v.da, v.a)]; if (r) { r.quota = am.quota; r.rivali = am.rivali.length; } }
-      const dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km);
+      const dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km, am.val);
       const pesi = lista.map(v => pesoOra(oraLocaleMin((v.dep - g) / MIN, v.da))), tot = pesi.reduce((s, x) => s + x, 0);
+      const T = G.tariffe || {}, DIN = D.DINAMICO[T.dinamico || 'fisso'], ob = 1 + (T.overbooking || 0);
+      const resa = (T.famiglie ? 1.05 : 1) * ((G.mod || {}).rm ? 1.03 : 1), perdita = 1 - DIN.perdita - (T.famiglie ? 0.01 : 0);
       lista.forEach((v, i) => {
-        const ae = aeMap.get(v.ae), p = prezzi[i], w = pesi[i] / tot, d = {}, cab = {};
-        for (const c of CL) { d[c] = dom[c] * w * (pm['p' + c] / p['p' + c]); cab[c] = ae.cab[c] - v.t[c]; }
-        v.att = vendiClassi(d, ae.cab, 1);
+        const ae = aeMap.get(v.ae), p = prezzi[i], w = pesi[i] / tot, d = {}, cab = {}, capOB = {};
+        for (const c of CL) { d[c] = dom[c] * w * (pm['p' + c] / p['p' + c]) * perdita; capOB[c] = Math.floor(ae.cab[c] * ob); cab[c] = capOB[c] - v.t[c]; }
+        v.att = vendiClassi(d, capOB, 1);
         const tgt = vendiClassi(d, cab, progressoVendite((v.dep - G.ora) / ORA));
-        for (const c of CL) if (tgt[c] > v.v[c]) { v.inc[c] += (tgt[c] - v.v[c]) * p['p' + c]; v.v[c] = tgt[c]; }
+        for (const c of CL) if (tgt[c] > v.v[c]) { v.inc[c] += (tgt[c] - v.v[c]) * p['p' + c] * resa * rialzoDinamico(G, (v.v[c] + v.t[c]) / Math.max(1, ae.cab[c])); v.v[c] = tgt[c]; }
       });
     }
     // 2) passeggeri in coincidenza negli hub (attesa tra MCT e attesa massima, solo mercati senza un tuo volo diretto)
@@ -486,7 +495,7 @@ const SIM = (() => {
           for (const x of coppie) { const p1 = prezziRotta(G, x.f1.da, x.f1.a), p2 = prezziRotta(G, x.f2.da, x.f2.a); for (const c of CL) tariffe['p' + c] += 0.8 * (p1['p' + c] + p2['p' + c]) / coppie.length; }
           const am = analisiMercato(G, O, Dd, g, coppie.length, tariffe.pY, 0.45);
           const mat = Math.min(maturitaRotta(G, O, H, g), maturitaRotta(G, H, Dd, g));
-          const dom = domandaClassi(am.pax / am.maturita * mat, am.quote, tariffe, am.ref, am.km);
+          const dom = domandaClassi(am.pax / am.maturita * mat, am.quote, tariffe, am.ref, am.km, am.val);
           const pesi = coppie.map(x => 1 / (1 + x.gap / 90)), tot = pesi.reduce((s, x) => s + x, 0);
           coppie.forEach((x, i) => {
             const { f1, f2 } = x, a1 = aeMap.get(f1.ae), a2 = aeMap.get(f2.ae);
@@ -520,7 +529,7 @@ const SIM = (() => {
       const pm = { pJ: 0, pW: 0, pY: 0 }; for (const p of prezzi) for (const c of CL) pm['p' + c] += p['p' + c] / lista.length;
       const pesi = lista.map(v => pesoOra(oraLocaleMin((v.dep - domani) / MIN, v.da))), tot = pesi.reduce((a, x) => a + x, 0);
       const venduti = o => {
-        const am = analisiMercato(G, v0.da, v0.a, domani, lista.length, pm.pY, 1, o), dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km);
+        const am = analisiMercato(G, v0.da, v0.a, domani, lista.length, pm.pY, 1, o), dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km, am.val);
         return lista.map((v, i) => {
           const ae = aeMap.get(v.ae), p = prezzi[i], d = {}, cab = {};
           for (const c of CL) { d[c] = dom[c] * pesi[i] / tot * (pm['p' + c] / p['p' + c]); cab[c] = ae.cab[c] - v.t[c]; }
@@ -567,7 +576,7 @@ const SIM = (() => {
       else if (eventoAttivo(G, 'sciopero', v.dep) && rnd() < 0.45) motivo = 'Sciopero del personale';
       else if (!eq) motivo = 'Nessun equipaggio assegnato al turno';
       else if (meteo && meteo.forza >= 2 && rnd() < 0.2) { motivo = meteo.testo; straord = true; }
-      else if (rnd() < 0.0025 * (1 + ae.eta / 12) * (usura > 0.85 ? 1 + (usura - 0.85) * 25 : 1)) {
+      else if (rnd() < 0.0025 * (1 + ae.eta / 12) * (usura > 0.85 ? 1 + (usura - 0.85) * 25 : 1) * ((G.mod || {}).predittiva ? 0.6 : 1)) {
         const costo = Math.round((15000 + rnd() * 50000) * MOD[ae.modello].peso / 70), ore = Math.round(6 + rnd() * 40);
         ae.stato = 'guasto'; ae.fino = G.ora + ore * ORA; G.cassa -= costo; G.oggi.costi.manutenzione += costo;
         notizia(G, `Guasto tecnico su ${ae.marche} a ${v.da}: fermo per circa ${ore} ore, riparazione ${eur(costo)}.`, 'cattiva', true);
@@ -575,7 +584,7 @@ const SIM = (() => {
       }
       if (!motivo) {
         const prop = ae.arrPrevista ? Math.max(0, (ae.arrPrevista + 25 * MIN - v.dep) / MIN) : 0;
-        const p = 0.16 + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0);
+        const p = (0.16 + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0)) * ((G.mod || {}).puntualita ? 0.75 : 1);
         const own = rnd() < p ? -Math.log(rnd()) * (meteo ? 45 : 20) : 0;
         v.rit = Math.round(Math.max(prop, own));
         v.depEff = v.dep + v.rit * MIN; v.arrEff = v.arr + v.rit * MIN + Math.round((rnd() - 0.5) * 10) * MIN;
@@ -597,32 +606,42 @@ const SIM = (() => {
   }
   function arrivo(G, v) {
     const ae = G.aerei.find(x => x.id === v.ae), m = MOD[ae.modello], k = km(v.da, v.a);
-    const pax = venduti(v), np = posti(ae), h = (v.arrEff - v.depEff) / ORA;
+    let pax = venduti(v); const np = posti(ae), h = (v.arrEff - v.depEff) / ORA, Sg = STR(G), M = G.mod || {};
+    // overbooking: qualcuno non si presenta (il biglietto resta pagato); se si presentano in troppi, si risarcisce
+    let negati = 0;
+    if ((G.tariffe || {}).overbooking > 0) {
+      const ns = Math.round(pax * 0.06 * (0.6 + 0.8 * rnd())); pax = Math.max(0, pax - ns); negati = Math.max(0, pax - np); pax -= negati;
+      if (negati) { G.oggi.negati = (G.oggi.negati || 0) + negati; G.reputazione = Math.max(0, G.reputazione - Math.min(1.5, negati * 0.08)); }
+    }
+    const paxC = { J: Math.min(ae.cab.J, v.v.J + v.t.J), W: Math.min(ae.cab.W, v.v.W + v.t.W), Y: 0 }; paxC.Y = Math.max(0, pax - paxC.J - paxC.W);
+    const bordo = contoBordo(G, paxC, h);
     const c = {
-      carburante: Math.round(m.consumo * h * G.carburante),
+      carburante: Math.round(m.consumo * h * (G.copertura ? G.copertura.prezzo : G.carburante)),
       tasse: Math.round(pax * AP[v.da].tassa + Math.max(np * 2, m.peso * 8)),
-      handling: 250 + pax * 5,
+      handling: Math.round((250 + pax * 5) * Sg.handling * (M.app ? 0.85 : 1)),
       navigazione: Math.round(k * 0.6 * Math.sqrt(m.peso / 70)),
       manutenzione: Math.round(m.manut * h * (1 + ae.eta * 0.03)),
-      servizio: Math.round((pax * D.SERVIZIO[G.servizio].costo + (v.v.J + v.t.J) * 12 + (v.v.W + v.t.W) * 4) * Math.max(1, h / 2)),
+      servizio: bordo.costo,
+      negati: negati * (k < 1500 ? 250 : 400),
       rimborsi: v.rit >= 180 ? Math.round(pax * (k < 1500 ? 250 : 400) * 0.5) : 0,
       equipaggi: (v.fineTurno ? (v.piloti + cabMin(ae)) * 150 : 0) + (v.posizionato ? (v.piloti + cabMin(ae)) * 250 : 0),
       soste: v.sostaFuori ? Math.round(m.peso * 15) : 0
     };
     const costi = Object.values(c).reduce((s, x) => s + x, 0), ricaviC = {}; let ricavi = 0;
     for (const x of CL) { ricaviC[x] = Math.round(v.inc[x]); ricavi += ricaviC[x]; }
+    ricavi += bordo.extra; G.oggi.ricaviExtra = (G.oggi.ricaviExtra || 0) + bordo.extra;
     v.stato = 'arrivato'; ae.ore += h; ae.cicli++; ae.oreDaCheck += h; ae.inVolo = null;
     G.cassa += ricavi - costi;
     const o = G.oggi;
     o.voli++; o.pax += pax; o.posti += np; o.ricavi += ricavi; if (v.rit <= 15) o.puntuali++;
     for (const x of CL) { o.paxC[x] += v.v[x] + v.t[x]; o.ricaviC[x] += ricaviC[x]; }
-    for (const x in c) o.costi[x] += c[x];
+    for (const x in c) o.costi[x] = (o.costi[x] || 0) + c[x];
     // i passeggeri in transito si contano una volta sola, sul volo che arriva all'hub
     if (G.hub.includes(v.a)) { let n = 0; for (const x of Object.values(v.conn)) n += somma(x); o.transito += n; (o.hub[v.a] ||= { transito: 0, ricavi: 0 }).transito += n; }
     o.ricaviTransito += v.incT;
     const hubRic = [v.da, v.a].find(i => G.hub.includes(i)); if (hubRic && v.incT) (o.hub[hubRic] ||= { transito: 0, ricavi: 0 }).ricavi += v.incT;
     const r = statRotta(o, chiave(v.da, v.a));
-    r.voli++; r.pax += pax; r.posti += np; r.ricavi += ricavi; r.costi += costi; r.transito += somma(v.t);
+    r.voli++; r.pax += pax; r.posti += np; r.ricavi += ricavi; r.costi += costi; r.transito += somma(v.t); r.extra = (r.extra || 0) + bordo.extra;
     for (const x of CL) { r.paxC[x] += v.v[x] + v.t[x]; r.ricaviC[x] += ricaviC[x]; r.postiC[x] += ae.cab[x]; }
     const ra = (o.aerei[ae.id] ||= { ore: 0, ricavi: 0, costi: 0 }); ra.ore += h; ra.ricavi += ricavi; ra.costi += costi;
     G.stat.pax += pax; G.stat.voli++;
@@ -671,7 +690,7 @@ const SIM = (() => {
   function pianificaCheck(G, aeId) {
     const ae = G.aerei.find(a => a.id === aeId); if (!ae || ae.lavori) return;
     const inizio = fineGiornataAereo(G, ae);
-    ae.lavori = { tipo: 'check', inizio, fine: inizio + 8 * ORA, costo: Math.round(MOD[ae.modello].check * (1 + ae.eta * 0.02)) };
+    ae.lavori = { tipo: 'check', inizio, fine: inizio + 8 * ORA, costo: Math.round(MOD[ae.modello].check * (1 + ae.eta * 0.02) * ((G.mod || {}).hangar ? 0.7 : 1)) };
     notizia(G, `${ae.marche}: ispezione programmata alle ${oraIn(inizio)} per 8 ore.`, 'info');
   }
 
@@ -694,6 +713,7 @@ const SIM = (() => {
       e.stato = 'attivo'; G._roster = null;
       notizia(G, `Equipaggio ${e.nome} (cpt. ${e.capo}, ${e.tipo}) operativo a ${e.base}${e.motivo ? ': ' + e.motivo : ''}.`, 'buona');
     }
+    if (ora === 8 && giornoSett(G.ora) === 0 && G.direzione) convocaRiunione(G);
     if (ora === 18) for (const ae of G.aerei) if (ae.autoCheck && !ae.lavori && ae.stato === 'attivo' && ae.oreDaCheck > 500) pianificaCheck(G, ae.id);
     if (ora === 3) for (const ae of G.aerei) {
       if (ae.stato === 'venduto' || ae.stato === 'consegna' || ae.inVolo) continue;
@@ -718,7 +738,9 @@ const SIM = (() => {
     c.personale = G.equipaggi.reduce((x, e) => x + pagaEquipaggio(e), 0) * G.stipendio;
     for (const b of G.basi) c.basi += AP[b].slot ? 2500 : 1200;
     c.hub = G.hub.length * D.HUB.giornaliero;
-    c.sede = 1000 + 300 * flottaAttiva(G).length;
+    c.sede = (1000 + 300 * flottaAttiva(G).length) * (G.strategia ? STR(G).sede : 1) * ((G.mod || {}).tagli ? 0.85 : 1);
+    if (G.bordo) c.prodotto = analisiProdotto(G).fisso;
+    if ((G.mod || {}).fedelta) c.prodotto = (c.prodotto || 0) + D.PROGETTI.fedelta.quotidiano;
     for (const d of G.debiti) c.interessi += d.capitale * d.tasso / 365;
     for (const x in c) c[x] = Math.round(c[x]);
     return c;
@@ -731,7 +753,7 @@ const SIM = (() => {
     for (const d of G.debiti) { const r = Math.min(d.capitale, d.rata); d.capitale -= r; G.cassa -= r; }
     G.debiti = G.debiti.filter(d => d.capitale > 1);
     const costi = Object.values(o.costi).reduce((s, x) => s + x, 0);
-    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
+    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, extra: Math.round(o.ricaviExtra || 0), negati: o.negati || 0, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
     const rec = G.storico.at(-1); G.stat.utile += rec.utile;
     const vecchio = G.storico[G.storico.length - 61]; if (vecchio) { delete vecchio.rotte; delete vecchio.aerei; }
     if (G.storico.length > 1200) G.storico.shift();
@@ -740,7 +762,7 @@ const SIM = (() => {
     const ult = G.storico.slice(-7), voli = ult.reduce((s, x) => s + x.voli, 0), canc = ult.reduce((s, x) => s + x.canc, 0);
     if (voli + canc > 0) {
       const punt = ult.reduce((s, x) => s + x.puntuali, 0) / Math.max(1, voli);
-      const target = clamp(50 + (punt - 0.8) * 160 - canc / (voli + canc) * 250 + D.SERVIZIO[G.servizio].rep + (G.morale - 50) * 0.1, 5, 95);
+      const target = clamp(50 + (punt - 0.8) * 160 - canc / (voli + canc) * 250 + (G.bordo ? analisiProdotto(G).rep : D.SERVIZIO[G.servizio].rep) + (G.morale - 50) * 0.1, 5, 95);
       G.reputazione = clamp(G.reputazione + (target - G.reputazione) * 0.06, 0, 100);
     }
     const cop = copertura(G);
@@ -750,7 +772,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
-    autoAssumi(G); controllaMissioni(G);
+    autoAssumi(G); controllaMissioni(G); giornoGestione(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -806,8 +828,7 @@ const SIM = (() => {
       if (!pst) continue;
       const lf = pax / pst, [a, b] = k.split('-'), riv = rivaliSu(G, a, b), q = r.quota || 0;
       if (!riv.length && q > 0.4 && lf > 0.8 && G.ora - r.aperta > 30 * GIORNO && G.ora - G.inizio > 45 * GIORNO && rnd() < 0.2) {
-        const R = pick(G.rivali); R.rotte[k] = { freq: 2 + Math.floor(rnd() * 2), prezzo: R.prezzo * 0.9 };
-        notizia(G, `${R.nome} ha visto i tuoi aerei pieni e apre ${a}–${b}, con prezzi aggressivi.`, 'cattiva', true);
+        if (!G.mosseRivali.some(m => m.k === k && !m.fatta)) G.mosseRivali.push({ riv: pick(G.rivali).id, k, freq: 2 + Math.floor(rnd() * 2), t: G.ora + (14 + Math.floor(rnd() * 14)) * GIORNO, attacco: true });
       } else for (const x of riv) {
         const am = analisiMercato(G, a, b, mezzanotte(G.ora), 1, r.pY), qr = am.rivali.find(y => y.riv.id === x.riv.id)?.quota || 0;
         if (qr < 0.12 && q > 0.3 && rnd() < 0.35) { delete x.riv.rotte[x.k]; notizia(G, `${x.riv.nome} abbandona ${x.k.replace('-', '–')}: la rotta è tua.`, 'buona', true); }
@@ -817,7 +838,7 @@ const SIM = (() => {
     for (const R of G.rivali) for (const rr of Object.values(R.rotte)) if (rr.guerraFino && G.ora > rr.guerraFino) { rr.prezzo = R.prezzo; delete rr.guerraFino; }
     if (rnd() < 0.25) {
       const R = pick(G.rivali), dest = pick(Object.keys(AP).filter(i => i !== R.hub && km(R.hub, i) < (R.raggio || 2000)));
-      const k = chiave(R.hub, dest); if (!R.rotte[k]) { R.rotte[k] = { freq: 2, prezzo: R.prezzo }; notizia(G, `${R.nome} inaugura un collegamento ${R.hub}–${dest}.`, 'info'); }
+      const k = chiave(R.hub, dest); if (!R.rotte[k] && !G.mosseRivali.some(m => m.k === k && !m.fatta)) G.mosseRivali.push({ riv: R.id, k, freq: 2, t: G.ora + (10 + Math.floor(rnd() * 20)) * GIORNO });
     }
   }
   function aggiornaMercato(G) {
@@ -1013,7 +1034,7 @@ const SIM = (() => {
     // giri "automatici": i più numerosi con un riempimento stimato di almeno il 72% (a rotta avviata)
     const posti = CL.reduce((x, c) => x + (ae.cab[c] || 0), 0);
     const mieFreq = (p, q) => { let f = 0; for (const x of flottaAttiva(G)) if (x.id !== ae.id) for (const l of mediaCiclo(x).tratte) if (l.da === p && l.a === q) f += l.peso; return f; };
-    const riemp = (tr, n) => { let s = 0; for (const [p, q, f] of tr) { const fq = f * n, tot = mieFreq(p, q) + fq, r = T.rotte[chiave(p, q)]; const am = analisiMercato(T, p, q, G.ora + GIORNO, tot, r.pY || prezzoRif(km(p, q))); s += Math.min(1, am.pax / Math.max(0.3, am.maturita) * (fq / tot) / (fq * posti)); } return s / tr.length; };
+    const riemp = (tr, n) => { let s = 0; for (const [p, q, f] of tr) { const fq = f * n, tot = mieFreq(p, q) + fq, r = T.rotte[chiave(p, q)]; const am = analisiMercato(T, p, q, G.ora + GIORNO, tot, r.pY || prezzoRif(km(p, q)), 1, { stima: true }); s += Math.min(1, am.pax / Math.max(0.3, am.maturita) * (fq / tot) / (fq * posti)); } return s / tr.length; };
     const trDi = dests => dests.flatMap(d => Array.isArray(d) ? [[b, d[0], 1], [d[0], d[1], 1], [d[1], b, 1]] : [[b, d, 1 / dests.length], [d, b, 1 / dests.length]]);
     const giriAuto = dests => { const tr = trDi(dests); for (let n = maxGiri(dests); n > 1; n--) if (riemp(tr, n) >= 0.72) return n; return 1; };
     // la migliore settimana uniforme per una lista di mete (nFisso: >0 giri esatti, 0 automatico, -1 massimo)
@@ -1098,6 +1119,330 @@ const SIM = (() => {
     while (M.attive.length < 3) { const n = M.attive.length; nuovaMissione(G); if (M.attive.length === n) break; }
   }
 
+/* ---------- Gestione aziendale: strategia, prodotto, tariffe, mercati, ricerche, direzione, CdA, borsa ---------- */
+  const num = n => Math.round(n).toLocaleString('it-IT');
+  const CONTINENTI = ['Europa', 'Asia', 'Africa', 'Oceania', 'Nord America', 'Sud America'];
+  function initGestione(G) {
+    G.strategia ||= 'tradizionale';
+    if (!G.bordo) G.bordo = JSON.parse(JSON.stringify(D.PRESET_BORDO[G.servizio] || D.PRESET_BORDO.standard));
+    G.tariffe ||= { bagaglio: 0, posto: 0, priorita: 0, famiglie: false, dinamico: 'fisso', overbooking: 0 };
+    G.economia ||= Object.fromEntries(CONTINENTI.map(c => [c, 1]));
+    G.serie ||= [];
+    G.studi ||= {}; G.ricerche ||= [];
+    G.mod ||= {};
+    G.mosseRivali ||= [];
+    G.direzione ||= { dirigenti: Object.fromEntries(Object.entries(D.DIRIGENTI).map(([k, x]) => [k, { nome: x.nomi[0], umore: 60, n: 0 }])), riunione: null, verbale: [], progetti: [] };
+    G.cda ||= { fiducia: 60, semestre: null, storico: [] };
+    G.borsa ||= { quotata: false };
+    if (!G.cda.semestre) nuovoSemestre(G);
+  }
+  const STR = G => D.STRATEGIE[G.strategia || 'tradizionale'];
+  // fattore di domanda "nascosto" di ogni coppia di città (diverso per partita): lo rivela uno studio di domanda
+  function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
+  const fattoreRotta = (G, da, a) => 0.72 + 0.6 * hash(chiaveCitta(da, a) + (G.id || ''));
+  const studiato = (G, da, a) => { const s = G.studi && G.studi[chiaveCitta(da, a)]; return !!s && G.ora - s < 365 * GIORNO; };
+  const economiaDi = (G, da, a) => G.economia ? Math.sqrt((G.economia[AP[da].continente] || 1) * (G.economia[AP[a].continente] || 1)) : 1;
+
+  // Gradimento del prodotto per classe su un volo lungo k km (1 = standard, già al netto di ciò che si aspettano i clienti)
+  function valoreProdotto(G, k = 800) {
+    const S = STR(G), h = k / 750 + 0.4, durF = clamp(h / 2, 0.5, 2), T = G.tariffe || {}, out = {};
+    for (const c of CL) {
+      let v = 1 - (S.attesa[c] || 0);
+      for (const [el, E] of Object.entries(D.BORDO)) {
+        if (E.classi && !E.classi.includes(c)) continue;
+        const L = E.livelli[livello(G, c, el)]; v += (L.val[c] || 0) * (E.durata ? durF : 1);
+      }
+      if (c === 'Y') {
+        if (T.bagaglio > 0) v -= 0.06 * (T.bagaglio / 30) ** 0.7 * S.tolleranza;
+        if (T.posto > 0) v -= 0.012 * (T.posto / 10) ** 0.5 * S.tolleranza;
+      }
+      if (T.famiglie) v -= 0.01;
+      out[c] = clamp(v, 0.5, 1.5);
+    }
+    return out;
+  }
+  // livello scelto per un elemento (rispetta i requisiti: senza Wi‑Fi installato si torna a "niente")
+  const livello = (G, c, el) => { const E = D.BORDO[el]; let l = (G.bordo && G.bordo[c] && G.bordo[c][el]) || 0; if (E.richiede && !(G.mod || {})[E.richiede]) l = 0; return clamp(l, 0, E.livelli.length - 1); };
+  // costo del servizio di bordo e ricavi extra di un volo
+  function contoBordo(G, paxC, h) {
+    let costo = 0, extra = 0; const T = G.tariffe || {}, app = (G.mod || {}).app ? 1.2 : 1;
+    for (const c of CL) {
+      const n = paxC[c]; if (!n) continue;
+      for (const [el, E] of Object.entries(D.BORDO)) {
+        if (E.classi && !E.classi.includes(c)) continue;
+        const L = E.livelli[livello(G, c, el)];
+        costo += n * ((L.costo || 0) + (L.costoOra || 0) * h); extra += n * ((L.ricavo && L.ricavo[c]) || 0);
+      }
+      if (c === 'Y') {
+        if (T.bagaglio > 0) extra += n * T.bagaglio * 0.55 * Math.exp(-T.bagaglio / 45) * app;
+        if (T.posto > 0) extra += n * T.posto * 0.25 * Math.exp(-T.posto / 18) * app;
+      }
+      if (T.priorita > 0 && c !== 'J') extra += n * T.priorita * 0.12 * Math.exp(-T.priorita / 20) * app;
+    }
+    return { costo: Math.round(costo), extra: Math.round(extra) };
+  }
+  // costo e ricavi extra medi a passeggero per classe (volo di 2 ore), per l'interfaccia
+  function analisiProdotto(G) {
+    const V = valoreProdotto(G, 1200), out = {}, S = STR(G);
+    for (const c of CL) {
+      const p = { J: 0, W: 0, Y: 0 }; p[c] = 1; const x = contoBordo(G, p, 2);
+      out[c] = { valore: V[c], costo: x.costo, extra: x.extra, nps: clamp(Math.round(30 + (V[c] - 1) * 300), -100, 100) };
+    }
+    out.rep = clamp(((V.J - 1) * 0.2 + (V.W - 1) * 0.1 + (V.Y - 1) * 0.7) * 60, -12, 12) + S.rep;
+    let fisso = 0; for (const c of ['J', 'W']) if (livello(G, c, 'lounge') === 2) { fisso = D.BORDO.lounge.livelli[2].fisso * G.basi.length; break; }
+    if ((G.mod || {}).wifi) fisso += 150 * flottaAttiva(G).length;
+    out.fisso = fisso;
+    return out;
+  }
+  // moltiplicatore del prezzo con la gestione dei ricavi (sale quando il volo si riempie)
+  function rialzoDinamico(G, riemp) { const R = D.DINAMICO[(G.tariffe || {}).dinamico || 'fisso']; return 1 + R.rialzo * clamp((riemp - 0.4) / 0.6, 0, 1); }
+
+  // ---------- Mercati ed economia ----------
+  function aggiornaEconomia(G) {
+    for (const c of CONTINENTI) {
+      let v = G.economia[c] ?? 1;
+      v += (1 - v) * 0.02 + (rnd() - 0.5) * 0.012;
+      if (rnd() < 0.002) { const shock = rnd() < 0.5 ? -0.07 : 0.05; v += shock; notizia(G, shock < 0 ? `Rallentamento economico in ${c}: meno viaggiatori nei prossimi mesi.` : `Economia in forte crescita in ${c}: la domanda di voli aumenta.`, shock < 0 ? 'cattiva' : 'buona', true); }
+      G.economia[c] = clamp(v, 0.8, 1.15);
+    }
+    if (giornoSett(G.ora) === 0) { G.serie.push({ t: G.ora, carb: G.carburante, econ: { ...G.economia } }); if (G.serie.length > 104) G.serie.shift(); }
+  }
+
+  // ---------- Ricerche di mercato ----------
+  function concludiRicerche(G) {
+    for (const r of G.ricerche) if (!r.fatta && G.ora >= r.fine) {
+      r.fatta = true;
+      if (r.tipo === 'domanda') { G.studi[chiaveCitta(r.da, r.a)] = G.ora; r.esito = esitoDomanda(G, r.da, r.a); notizia(G, `Studio di domanda ${r.da}–${r.a} pronto: ${r.esito.testo}`, 'buona', true); }
+      else if (r.tipo === 'area') { const l = candidati(G, r.base, 12); for (const x of l) G.studi[chiaveCitta(r.base, x.a)] = G.ora; r.esito = { lista: l.map(x => x.a) }; notizia(G, `Indagine di mercato su ${r.base} pronta: 12 destinazioni studiate, le trovi in Mercati.`, 'buona', true); }
+      else if (r.tipo === 'concorrenza') { G.intel = G.ora + 60 * GIORNO; notizia(G, 'Analisi della concorrenza pronta: per 60 giorni vedi in anticipo le loro mosse (pagina Mercati).', 'buona', true); }
+      else if (r.tipo === 'sondaggio') { G.sondaggio = { t: G.ora, ...esitoSondaggio(G) }; notizia(G, 'Sondaggio passeggeri pronto: lo trovi in Bordo e tariffe.', 'buona', true); }
+    }
+    G.ricerche = G.ricerche.filter(r => !r.fatta || G.ora - r.fine < 120 * GIORNO);
+  }
+  function esitoDomanda(G, da, a) {
+    const f = fattoreRotta(G, da, a), g = mezzanotte(G.ora), mesi = [];
+    for (let m = 0; m < 12; m++) { const d = loc(g); const t = Date.UTC(d.getUTCFullYear(), m, 15) - FUSO * ORA; mesi.push(Math.round(domandaBase(G, da, a, t))); }
+    const tur = (AP[da].tur + AP[a].tur) / 2, quote = quoteClassi(da, a);
+    return { fattore: f, mesi, turismo: tur, quote, testo: `${f > 1.12 ? 'domanda molto più alta del previsto' : f > 1 ? 'domanda un po’ più alta del previsto' : f > 0.88 ? 'domanda un po’ più bassa del previsto' : 'domanda molto più bassa del previsto'} (${f > 1 ? '+' : ''}${Math.round((f - 1) * 100)}% rispetto alla stima generica).` };
+  }
+  function esitoSondaggio(G) {
+    const V = valoreProdotto(G, 1200), out = {};
+    for (const c of CL) {
+      const idee = [];
+      for (const [el, E] of Object.entries(D.BORDO)) {
+        if (E.classi && !E.classi.includes(c)) continue;
+        const l = livello(G, c, el); if (l >= E.livelli.length - 1) continue;
+        const L0 = E.livelli[l], L1 = E.livelli[l + 1], dv = (L1.val[c] || 0) - (L0.val[c] || 0);
+        if (dv > 0.005) idee.push({ el, nome: E.nome, verso: L1.nome, guadagno: dv, costo: ((L1.costo || 0) + (L1.costoOra || 0) * 2) - ((L0.costo || 0) + (L0.costoOra || 0) * 2), bloccato: E.richiede && !(G.mod || {})[E.richiede] });
+      }
+      idee.sort((x, y) => y.guadagno / Math.max(1, y.costo) - x.guadagno / Math.max(1, x.costo));
+      out[c] = { nps: clamp(Math.round(30 + (V[c] - 1) * 300), -100, 100), idee: idee.slice(0, 3) };
+    }
+    return { classi: out };
+  }
+
+  // ---------- Proposte di destinazioni ----------
+  // stima dei costi di un volo (come all'arrivo, senza ritardi)
+  function costoVoloStimato(G, mod, k, pax) {
+    const m = MOD[mod], h = durata(k, mod) / 60, np = somma(cabinaStandard(mod));
+    return m.consumo * h * G.carburante + pax * 20 + Math.max(np * 2, m.peso * 8) + 250 + pax * 5 + k * 0.6 * Math.sqrt(m.peso / 70) + m.manut * h + pax * 4 * Math.max(1, h / 2);
+  }
+  function candidati(G, base, n = 5, escludiAperte = true) {
+    const modelli = [...new Set(flottaAttiva(G).map(a => a.modello))];
+    if (!modelli.length) modelli.push('A320');
+    const out = [], domani = giornoDopo(mezzanotte(G.ora));
+    for (const a of Object.keys(AP)) {
+      if (a === base || AP[a].citta === AP[base].citta) continue;
+      const k = km(base, a); if (k < 180) continue;
+      if (escludiAperte && G.rotte[chiave(base, a)]) continue;
+      const adatti = modelli.filter(m => MOD[m].autonomia >= k); if (!adatti.length) continue;
+      const ref = prezzoRif(k);
+      let best = null, paxDir = 0, nRiv = 0;
+      for (const m of adatti) {
+        // voli di andata e ritorno al giorno che un aereo riesce a fare (sotto 1: a giorni alterni)
+        const giro = 2 * (durata(k, m) + (MOD[m].lungo ? 90 : 45)), n = giro <= 1440 ? clamp(Math.floor(960 / giro), 1, 2) : 3 / 7;
+        const am = analisiMercato(G, base, a, domani, n, ref, 1, { stima: true, senzaMarketing: true });
+        const pd = am.pax / Math.max(0.3, am.maturita), posti = somma(cabinaStandard(m)), lf = Math.min(1, pd / (n * posti)), pax = lf * posti;
+        const utile = 2 * n * (pax * ref * 1.12 - costoVoloStimato(G, m, k, pax));
+        if (!best || utile > best.utile) { best = { mod: m, lf, utile, giri: n }; paxDir = pd; nRiv = am.rivali.length; }
+      }
+      out.push({ da: base, a, km: k, ...best, paxDir: Math.round(paxDir), studiato: studiato(G, base, a), rivali: nRiv });
+    }
+    return out.sort((x, y) => y.utile - x.utile).slice(0, n);
+  }
+  function proposteDestinazioni(G, n = 6) {
+    const tutte = G.basi.flatMap(b => candidati(G, b, n));
+    return tutte.sort((x, y) => y.utile - x.utile).slice(0, n);
+  }
+
+  // ---------- Concorrenti: mosse pianificate (visibili con l'analisi della concorrenza) ----------
+  function eseguiMosseRivali(G) {
+    for (const m of G.mosseRivali) if (!m.fatta && G.ora >= m.t) {
+      m.fatta = true; const R = G.rivali.find(r => r.id === m.riv); if (!R || R.rotte[m.k]) continue;
+      R.rotte[m.k] = { freq: m.freq, prezzo: R.prezzo * (m.attacco ? 0.9 : 1) };
+      const [a, b] = m.k.split('-');
+      notizia(G, m.attacco ? `${R.nome} ha visto i tuoi aerei pieni e apre ${a}–${b}, con prezzi aggressivi.` : `${R.nome} inaugura un collegamento ${a}–${b}.`, m.attacco ? 'cattiva' : 'info', !!m.attacco);
+    }
+    G.mosseRivali = G.mosseRivali.filter(m => !m.fatta || G.ora - m.t < 30 * GIORNO);
+  }
+  const intel = G => G.intel && G.ora < G.intel;
+
+  // ---------- Progetti ----------
+  function avviaProgetto(G, tipo, dati = {}) {
+    const P = D.PROGETTI[tipo]; if (!P) return err('Progetto sconosciuto');
+    if (G.mod[tipo] && tipo !== 'sponsor' && tipo !== 'tagli' && tipo !== 'rebranding') return err('Progetto già completato');
+    if (G.direzione.progetti.some(p => p.tipo === tipo && !p.fatto)) return err('Progetto già in corso');
+    const costo = P.costo + (P.perAereo || 0) * flottaAttiva(G).length;
+    if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+    paga(G, costo, 'altro');
+    G.direzione.progetti.push({ id: 'pr' + (G.seq++), tipo, nome: P.nome, inizio: G.ora, fine: G.ora + P.giorni * GIORNO, costo, fatto: false });
+    if (tipo === 'tagli') G.morale = Math.max(0, G.morale - 8);
+    return ok(`${P.nome}: avviato, pronto tra ${P.giorni} giorni`);
+  }
+  function concludiProgetti(G) {
+    for (const p of G.direzione.progetti) if (!p.fatto && G.ora >= p.fine) {
+      p.fatto = true; const P = D.PROGETTI[p.tipo];
+      if (p.tipo === 'rebranding') G.reputazione = Math.min(100, G.reputazione + 8);
+      else if (p.tipo === 'sponsor') G.reputazione = Math.min(100, G.reputazione + 4);
+      else if (p.tipo === 'tagli') G.mod.tagli = G.ora + 180 * GIORNO;
+      else { G.mod[p.tipo] = true; if (p.tipo === 'app' || p.tipo === 'fedelta') G.reputazione = Math.min(100, G.reputazione + 2); }
+      notizia(G, `Progetto completato: ${P.nome}. ${P.effetto}.`, 'buona', true);
+    }
+  }
+
+  // ---------- Riunione di direzione (ogni lunedì mattina) ----------
+  const PROPOSTE = [
+    { ruolo: 'cfo', id: 'copertura', se: G => !G.copertura && G.carburante < 0.86 && flottaAttiva(G).length >= 2, testo: G => `Il cherosene è a ${G.carburante.toFixed(2)} €/kg, sotto la media. Propongo di bloccare il prezzo per 6 mesi con una copertura (premio ${eur(costoCopertura(G))}).`, costo: G => costoCopertura(G), fai: G => { paga(G, costoCopertura(G), 'altro'); G.copertura = { prezzo: G.carburante * 1.02, fine: G.ora + 180 * GIORNO }; return ok('Prezzo del cherosene bloccato per 6 mesi'); } },
+    { ruolo: 'cfo', id: 'prestito', se: G => G.cassa < 7 * fissiTot(G) && A.limitePrestito(G) >= 1e6, testo: G => `La cassa copre ${Math.max(0, Math.floor(G.cassa / Math.max(1, fissiTot(G))))} giorni di costi fissi. Chiediamo un prestito di ${eur(prestitoProposto(G))} al ${(A.tassoPrestito(G) * 100).toFixed(1)}%.`, costo: () => 0, fai: G => A.prestito(G, prestitoProposto(G)) },
+    { ruolo: 'cfo', id: 'tagli', se: G => !G.mod.tagli && utileUltimi(G, 14) < 0 && !G.direzione.progetti.some(p => p.tipo === 'tagli' && !p.fatto), testo: () => 'Siamo in perdita da due settimane. Propongo un piano di riduzione dei costi di sede (−15% per 6 mesi). Il personale non la prenderà bene.', costo: () => 0, progetto: 'tagli' },
+    { ruolo: 'cfo', id: 'dividendo', se: G => G.borsa.quotata && utileUltimi(G, 30) > 0 && G.cassa > 20 * fissiTot(G), testo: G => `Utile solido e cassa abbondante: distribuiamo un dividendo di ${eur(dividendoProposto(G))} agli azionisti? Il titolo e la fiducia del CdA salirebbero.`, costo: G => dividendoProposto(G), fai: G => A.dividendo(G, dividendoProposto(G)) },
+    { ruolo: 'comm', id: 'rotta', se: G => { const p = proposteDestinazioni(G, 3).find(x => x.utile > 0 && !G.direzione.verbale.some(v => v.id === 'rotta' && v.dati === x.da + '-' + x.a && G.ora - v.t < 60 * GIORNO)); return p && { k: p.da + '-' + p.a, p }; }, testo: (G, d) => `Ho trovato una rotta interessante: ${d.p.da}–${d.p.a} (${num(d.p.km)} km). Con ${d.p.giri >= 1 ? `${d.p.giri} ${d.p.giri === 1 ? 'volo' : 'voli'} di andata e ritorno al giorno` : 'tre andata e ritorno a settimana'} di un ${MOD[d.p.mod].nome} stimo un riempimento del ${Math.round(d.p.lf * 100)}% e circa ${eur(d.p.utile)} al giorno di margine sui voli${d.p.studiato ? ' (dato da studio di mercato)' : ' (stima generica, ±30%)'}. Apriamola?`, costo: () => 30000, fai: (G, d) => { const [a, b] = d.k.split('-'); return A.apriRotta(G, a, b); } },
+    { ruolo: 'comm', id: 'prezzi', se: G => { const S = statRecenti(G); const x = Object.entries(S.rotte).find(([k, r]) => G.rotte[k] && r.voli >= 4 && r.pax / r.posti > 0.94 && !(G.rotte[k].ritocco && G.ora - G.rotte[k].ritocco < 7 * GIORNO)); return x && { k: x[0], lf: x[1].pax / x[1].posti }; }, testo: (G, d) => `${d.k.replace('-', '–')} vola piena al ${Math.round(d.lf * 100)}%: alziamo le tariffe dell’8%.`, costo: () => 0, fai: (G, d) => A.ritocca(G, d.k, 1.08) },
+    { ruolo: 'comm', id: 'studio', se: G => { const p = proposteDestinazioni(G, 6).find(x => !x.studiato && !G.ricerche.some(r => !r.fatta && r.da === x.da && r.a === x.a)); return p && { da: p.da, a: p.a }; }, testo: (G, d) => `Prima di decidere su ${d.da}–${d.a} vorrei uno studio di domanda: oggi la stima è generica (±30%).`, costo: () => D.RICERCHE.domanda.costo, fai: (G, d) => A.ricerca(G, { tipo: 'domanda', da: d.da, a: d.a }) },
+    { ruolo: 'comm', id: 'famiglie', se: G => !G.tariffe.famiglie && G.stat.voli > 200, testo: () => 'Introduciamo tre tariffe (Light, Standard, Flex) per ogni classe: chi vuole flessibilità paga di più. Stimo +5% di ricavi per biglietto.', costo: () => 0, fai: G => { G.tariffe.famiglie = true; return ok('Tariffe Light, Standard e Flex introdotte'); } },
+    { ruolo: 'coo', id: 'puntualita', se: G => !G.mod.puntualita && puntualitaUltimi(G, 14) < 0.85 && G.stat.voli > 50, testo: G => `La puntualità è al ${Math.round(puntualitaUltimi(G, 14) * 100)}%. Con un programma puntualità (squadre di rampa dedicate, procedure) tagliamo i ritardi di un quarto.`, costo: () => D.PROGETTI.puntualita.costo, progetto: 'puntualita' },
+    { ruolo: 'coo', id: 'hangar', se: G => !G.mod.hangar && flottaAttiva(G).length >= 6 && G.cassa > 6e6, testo: () => 'Con questa flotta conviene un hangar nostro: le ispezioni costerebbero il 30% in meno.', costo: () => D.PROGETTI.hangar.costo, progetto: 'hangar' },
+    { ruolo: 'coo', id: 'riserve', se: G => copertura(G).scoperte > 0 && A.stimaMancanti(G, true).n > 0, testo: G => `${copertura(G).scoperte} turni sono senza equipaggio. Assumiamo subito tramite agenzia (operativi in 2 giorni)?`, costo: G => A.stimaMancanti(G, true).costo, fai: G => A.assumiMancanti(G, true) },
+    { ruolo: 'coo', id: 'aereo', se: G => { const S = statRecenti(G, 14); let p = 0, s = 0; for (const r of Object.values(S.rotte)) { p += r.pax; s += r.posti; } const m = modelloPiuUsato(G); return s && p / s > 0.86 && m && G.cassa > MOD[m].leasing * 60 && { m }; }, testo: (G, d) => `Gli aerei volano quasi pieni: prendiamo un altro ${MOD[d.m].nome} in leasing (${eur(MOD[d.m].leasing)} al giorno, consegna in 30 giorni)?`, costo: (G, d) => MOD[d.m].leasing * 30, fai: (G, d) => A.compraNuovo(G, d.m, 'leasing', G.basi[0], cabinaStandard(d.m)) },
+    { ruolo: 'cmo', id: 'fedelta', se: G => !G.mod.fedelta && G.stat.voli > 300, testo: () => 'Un programma fedeltà terrebbe con noi i viaggiatori d’affari: +12% di clienti Business e Premium.', costo: () => D.PROGETTI.fedelta.costo, progetto: 'fedelta' },
+    { ruolo: 'cmo', id: 'rebranding', se: G => G.reputazione < 42 && !G.direzione.progetti.some(p => p.tipo === 'rebranding' && G.ora - p.inizio < 180 * GIORNO), testo: G => `La reputazione è ${Math.round(G.reputazione)}/100. Una nuova immagine del marchio la farebbe risalire di 8 punti.`, costo: () => D.PROGETTI.rebranding.costo, progetto: 'rebranding' },
+    { ruolo: 'cmo', id: 'sponsor', se: G => G.cassa > 3e6 && !G.direzione.progetti.some(p => p.tipo === 'sponsor' && G.ora - p.inizio < 90 * GIORNO), testo: () => 'La squadra di calcio della città cerca uno sponsor di maglia: visibilità e +4 di reputazione.', costo: () => D.PROGETTI.sponsor.costo, progetto: 'sponsor' },
+    { ruolo: 'cmo', id: 'lancio', se: G => { const k = Object.keys(G.rotte).find(k => G.ora - G.rotte[k].aperta < 20 * GIORNO && !(G.campagne || []).some(c => c.obiettivo === k)); return k && { k }; }, testo: (G, d) => `La rotta ${d.k.replace('-', '–')} è nuova: una campagna online di 14 giorni (1.500 € al giorno) la farebbe conoscere prima.`, costo: () => 21000, fai: (G, d) => A.avviaCampagna(G, { canale: 'online', ambito: 'rotta', obiettivo: d.k, budget: 1500, giorni: 14 }) },
+    { ruolo: 'cto', id: 'rm', se: G => !G.mod.rm && G.stat.voli > 150, testo: () => 'Un sistema di revenue management alza i prezzi quando i voli si riempiono: +3% subito e prezzi dinamici più spinti.', costo: () => D.PROGETTI.rm.costo, progetto: 'rm' },
+    { ruolo: 'cto', id: 'app', se: G => !G.mod.app && G.stat.voli > 80, testo: () => 'App e check-in online: meno personale ai banchi (handling −15%) e più servizi extra venduti.', costo: () => D.PROGETTI.app.costo, progetto: 'app' },
+    { ruolo: 'cto', id: 'wifi', se: G => !G.mod.wifi && flottaAttiva(G).length >= 2, testo: G => `Installiamo il Wi‑Fi satellitare: ${eur(80000 * flottaAttiva(G).length)} per la flotta, poi lo vendiamo o lo regaliamo ai passeggeri.`, costo: G => 80000 * flottaAttiva(G).length, progetto: 'wifi' },
+    { ruolo: 'cto', id: 'predittiva', se: G => !G.mod.predittiva && flottaAttiva(G).length >= 4, testo: () => 'Sensori e analisi dei dati di volo: i guasti calano del 40%.', costo: () => D.PROGETTI.predittiva.costo, progetto: 'predittiva' },
+    { ruolo: 'cto', id: 'sito', se: G => !G.mod.sito && G.stat.voli > 30, testo: () => 'Il sito di prenotazione è vecchio: con uno nuovo vendiamo di più direttamente (+3% di domanda su tutte le rotte).', costo: () => D.PROGETTI.sito.costo, progetto: 'sito' }
+  ];
+  const costoCopertura = G => Math.round(flottaAttiva(G).reduce((s, a) => s + MOD[a.modello].consumo * 9, 0) * 180 * 0.02 * G.carburante / 1000) * 1000 || 20000;
+  const fissiTot = G => Object.values(costiFissi(G)).reduce((s, x) => s + x, 0);
+  const prestitoProposto = G => Math.min(A.limitePrestito(G), Math.max(1e6, Math.round(fissiTot(G) * 30 / 1e5) * 1e5));
+  const dividendoProposto = G => Math.round(Math.max(0, utileUltimi(G, 30)) * 0.3 / 1e4) * 1e4 || 100000;
+  const utileUltimi = (G, n) => G.storico.slice(-n).reduce((s, x) => s + x.utile, 0);
+  const puntualitaUltimi = (G, n) => { const u = G.storico.slice(-n), v = u.reduce((s, x) => s + x.voli, 0); return v ? u.reduce((s, x) => s + x.puntuali, 0) / v : 1; };
+  function modelloPiuUsato(G) { const c = {}; for (const a of flottaAttiva(G)) c[a.modello] = (c[a.modello] || 0) + 1; return Object.entries(c).sort((x, y) => y[1] - x[1])[0]?.[0]; }
+  // contrari: un altro dirigente si oppone se la proposta costa troppo rispetto alla cassa
+  function obiezione(G, p) {
+    if (p.ruolo !== 'cfo' && p.costo > 0 && G.cassa - p.costo < 10 * fissiTot(G)) return { ruolo: 'cfo', testo: `Contraria/o: dopo questa spesa la cassa coprirebbe solo ${Math.max(0, Math.floor((G.cassa - p.costo) / Math.max(1, fissiTot(G))))} giorni di costi fissi.` };
+    if (p.id === 'tagli') return { ruolo: 'coo', testo: 'Contraria/o: con il morale basso aumentano ritardi e scioperi.' };
+    if (p.id === 'rotta' && copertura(G).scoperte) return { ruolo: 'coo', testo: 'Attenzione: abbiamo già turni senza equipaggio, prima sistemiamo quelli.' };
+    if (p.id === 'prezzi' && G.strategia === 'lowcost') return { ruolo: 'cmo', testo: 'Siamo una low cost: alzare troppo i prezzi rovina il nostro posizionamento.' };
+    return null;
+  }
+  function convocaRiunione(G) {
+    const R = G.direzione;
+    if (R.riunione && !R.riunione.chiusa) for (const p of R.riunione.proposte) if (!p.esito) { p.esito = 'rimandata'; R.verbale.unshift({ t: G.ora, id: p.id, ruolo: p.ruolo, titolo: p.testo, esito: 'Scaduta senza decisione', dati: p.dati?.k }); }
+    if (R.verbale.length > 80) R.verbale.length = 80;
+    const proposte = [];
+    for (const ruolo of Object.keys(D.DIRIGENTI)) {
+      const cand = PROPOSTE.filter(x => x.ruolo === ruolo && !(x.progetto && (G.mod[x.progetto] && !['sponsor', 'rebranding', 'tagli'].includes(x.progetto))));
+      const recenti = new Set(R.verbale.filter(v => G.ora - v.t < (v.esito === 'Bocciata' ? 42 : 14) * GIORNO).map(v => v.id));
+      for (const x of cand.sort(() => rnd() - 0.5)) {
+        if (recenti.has(x.id)) continue;
+        let d; try { d = x.se(G); } catch { d = null; } if (!d) continue;
+        const dati = d === true ? null : d, costo = x.costo(G, dati);
+        const p = { id: x.id, ruolo, testo: x.testo(G, dati), costo, dati, progetto: x.progetto || null };
+        p.contro = obiezione(G, p);
+        proposte.push(p); break;
+      }
+    }
+    R.riunione = { t: G.ora, proposte, chiusa: !proposte.length };
+    if (proposte.length) notizia(G, `Riunione di direzione: ${proposte.length} ${proposte.length === 1 ? 'proposta' : 'proposte'} sul tavolo (pagina Direzione).`, 'info', true);
+  }
+  function decidi(G, i, si) {
+    const R = G.direzione, p = R.riunione && R.riunione.proposte[i]; if (!p || p.esito) return err('Proposta non più valida');
+    const dir = R.dirigenti[p.ruolo];
+    let r = ok('Proposta bocciata');
+    if (si) {
+      const x = PROPOSTE.find(q => q.id === p.id);
+      r = x.progetto ? avviaProgetto(G, x.progetto) : x.fai(G, p.dati);
+      if (r.errore) return r;
+      dir.umore = Math.min(100, dir.umore + 6); dir.n++;
+      if (p.contro) { const c = R.dirigenti[p.contro.ruolo]; c.umore = Math.max(0, c.umore - 3); }
+    } else {
+      dir.umore = Math.max(0, dir.umore - 7);
+      if (dir.umore < 15) dimissioni(G, p.ruolo);
+    }
+    p.esito = si ? 'approvata' : 'bocciata';
+    R.verbale.unshift({ t: G.ora, id: p.id, ruolo: p.ruolo, titolo: p.testo, esito: si ? 'Approvata' : 'Bocciata', dati: p.dati?.k });
+    if (R.verbale.length > 80) R.verbale.length = 80;
+    if (R.riunione.proposte.every(q => q.esito)) R.riunione.chiusa = true;
+    return si ? ok(r.msg || 'Approvata') : r;
+  }
+  function dimissioni(G, ruolo) {
+    const d = G.direzione.dirigenti[ruolo], nomi = D.DIRIGENTI[ruolo].nomi, vecchio = d.nome;
+    d.nome = nomi[(nomi.indexOf(vecchio) + 1) % nomi.length]; d.umore = 60; d.n = 0;
+    G.reputazione = Math.max(0, G.reputazione - 1);
+    notizia(G, `${vecchio} (${D.DIRIGENTI[ruolo].ruolo}) si dimette: troppe proposte bocciate. Al suo posto arriva ${d.nome}.`, 'cattiva', true);
+  }
+
+  // ---------- Consiglio di amministrazione: obiettivi semestrali ----------
+  function nuovoSemestre(G) {
+    const u30 = utileUltimi(G, 30), base = u30 > 0 ? Math.max(5e5, Math.round(u30 * 6 * 1.1 / 1e5) * 1e5) : 0;
+    G.cda.semestre = { inizio: G.ora, fine: G.ora + 180 * GIORNO, utileDa: G.stat.utile, obiettivi: [
+      { tipo: 'utile', t: base ? `Utile del semestre oltre ${eur(base)}` : 'Chiudere il semestre in utile', target: base },
+      { tipo: 'puntualita', t: 'Puntualità media dell’85%', target: 0.85 },
+      { tipo: 'reputazione', t: `Reputazione a ${Math.min(90, Math.round(G.reputazione) + 5)}`, target: Math.min(90, Math.round(G.reputazione) + 5) }] };
+  }
+  function statoCda(G) {
+    const S = G.cda.semestre; if (!S) return [];
+    const st = G.storico.filter(x => x.t >= mezzanotte(S.inizio)), v = st.reduce((s, x) => s + x.voli, 0), punt = v ? st.reduce((s, x) => s + x.puntuali, 0) / v : 0;
+    const utile = G.stat.utile - S.utileDa;
+    return S.obiettivi.map(o => {
+      if (o.tipo === 'utile') return { ...o, valore: utile, v: o.target ? utile / o.target : utile > 0 ? 1 : 0, s: eur(utile) };
+      if (o.tipo === 'puntualita') return { ...o, valore: punt, v: punt / o.target, s: Math.round(punt * 100) + '%' };
+      return { ...o, valore: G.reputazione, v: G.reputazione / o.target, s: Math.round(G.reputazione) + '' };
+    });
+  }
+  function chiudiSemestre(G) {
+    const st = statoCda(G), fatti = st.filter(o => o.v >= 1).length, delta = [-20, -6, 8, 15][fatti];
+    G.cda.fiducia = clamp(G.cda.fiducia + delta, 0, 100);
+    G.cda.storico.unshift({ t: G.ora, fatti, delta, obiettivi: st.map(o => ({ t: o.t, s: o.s, ok: o.v >= 1 })) });
+    notizia(G, `Il CdA chiude il semestre: ${fatti} obiettivi su 3 raggiunti. Fiducia ${delta > 0 ? '+' : ''}${delta} (ora ${Math.round(G.cda.fiducia)}/100).${G.cda.fiducia < 25 ? ' Il CdA è molto scontento: le banche alzano i tassi.' : ''}`, fatti >= 2 ? 'buona' : 'cattiva', true);
+    nuovoSemestre(G);
+  }
+
+  // ---------- Borsa ----------
+  const AZIONI = 100e6;
+  function valoreEquo(G) {
+    const u = utileUltimi(G, 90) / Math.max(1, Math.min(90, G.storico.length)) * 365;
+    return Math.max(valoreCompagnia(G), u * 10 + Math.max(0, G.cassa) - debitoTot(G), 5e6) * (0.75 + G.cda.fiducia / 200) * (0.9 + G.reputazione / 500);
+  }
+  function aggiornaBorsa(G) {
+    const B = G.borsa; if (!B.quotata) return;
+    const equo = valoreEquo(G) / B.azioni;
+    B.prezzo = Math.max(0.05, B.prezzo + (equo - B.prezzo) * 0.06 + B.prezzo * (rnd() - 0.5) * 0.035);
+    B.storico.push({ t: G.ora, p: B.prezzo }); if (B.storico.length > 400) B.storico.shift();
+  }
+
+  // ---------- Ciclo: chiamate dal giornaliero e dall'orario ----------
+  function giornoGestione(G) {
+    aggiornaEconomia(G); concludiRicerche(G); concludiProgetti(G); eseguiMosseRivali(G); aggiornaBorsa(G);
+    if (G.copertura && G.ora > G.copertura.fine) { delete G.copertura; notizia(G, 'Scaduta la copertura sul prezzo del cherosene.', 'info'); }
+    if (G.mod.tagli && G.mod.tagli !== true && G.ora > G.mod.tagli) delete G.mod.tagli;
+    if (G.cda.semestre && G.ora >= G.cda.semestre.fine) chiudiSemestre(G);
+  }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -1119,7 +1464,7 @@ const SIM = (() => {
       for (const [tipo, n, piloti, cabina] of S.equipaggi) for (let q = 0; q < n; q++) nuovoEquipaggio(G, { base: b, tipo, piloti, cabina });
       if (S.slot) Object.assign(G.slot, S.slot);
     }
-    aggiornaMercato(G); controllaMissioni(G);
+    initGestione(G); aggiornaMercato(G); controllaMissioni(G);
     for (let i = 0; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
     vendite(G);
     notizia(G, `Benvenuto in ${G.nome}! ${S.descr}`, 'buona');
@@ -1158,6 +1503,7 @@ const SIM = (() => {
     G.campagne ||= [];
     if (G.oggi && G.oggi.costi && G.oggi.costi.marketing == null) G.oggi.costi.marketing = 0;
     G.fuso ??= AP[G.basi[0]].fuso; impostaFuso(G);
+    initGestione(G);
     G.auto ||= { equipaggi: true, ispezioni: true }; if (!G.missioni) { G.missioni = { attive: [], fatte: 0 }; controllaMissioni(G); }
     if (G.v >= VERSIONE) return G;
     if (!G.v || G.v < 2) migraV2(G);
@@ -1396,6 +1742,7 @@ const SIM = (() => {
     },
     // applica la rotazione guidata: apre le rotte, compra gli slot che servono e salva il programma
     applicaRotazione(G, aeId, r) {
+      if (!r || !r.ok) return err((r && r.errore) || 'Rotazione non valida');
       if (G.cassa < r.costo) return err(`Servono ${eur(r.costo)} in cassa`);
       const ae = G.aerei.find(a => a.id === aeId); if (!ae) return err('Aereo inesistente');
       for (const k of r.nuove) if (!G.rotte[k]) { const [a, b] = k.split('-'); A.apriRotta(G, a, b); }
@@ -1403,9 +1750,72 @@ const SIM = (() => {
       const v = salvaProgramma(G, aeId, r.prog);
       return v.E.length ? err(v.E[0]) : ok('Rotazione salvata: i voli partono dai prossimi giorni');
     },
+    strategia(G, id) {
+      if (!D.STRATEGIE[id] || id === G.strategia) return err('Scegli un altro posizionamento');
+      if (G.cambioStrategia && G.ora - G.cambioStrategia < 180 * GIORNO) return err('Il posizionamento si può cambiare al massimo ogni 6 mesi');
+      const costo = 300000; if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+      paga(G, costo, 'marketing'); G.strategia = id; G.cambioStrategia = G.ora; G.reputazione = Math.max(0, G.reputazione - 3); vendite(G);
+      notizia(G, `Nuovo posizionamento: ${D.STRATEGIE[id].nome}. I clienti ci metteranno un po’ ad accorgersene (reputazione −3).`, 'info');
+      return ok('Posizionamento cambiato');
+    },
+    bordo(G, c, el, l) {
+      const E = D.BORDO[el]; if (!E || !CL.includes(c) || (E.classi && !E.classi.includes(c))) return err('Scelta non valida');
+      if (E.richiede && !(G.mod || {})[E.richiede] && l > 0) return err('Serve prima il Wi‑Fi satellitare (progetto del CTO)');
+      G.bordo[c][el] = clamp(Math.round(l), 0, E.livelli.length - 1); vendite(G); return ok(`${E.nome} ${CLS[c].nome}: ${E.livelli[G.bordo[c][el]].nome}`);
+    },
+    tariffe(G, x) {
+      const T = G.tariffe;
+      for (const k of ['bagaglio', 'posto', 'priorita']) if (x[k] != null) T[k] = clamp(Math.round(+x[k] || 0), 0, 200);
+      if (x.famiglie != null) T.famiglie = !!x.famiglie;
+      if (x.dinamico != null) { const R0 = D.DINAMICO[x.dinamico]; if (!R0) return err('Scelta non valida'); if (R0.richiede && !(G.mod || {})[R0.richiede]) return err('Serve prima il sistema di revenue management (progetto del CTO)'); T.dinamico = x.dinamico; }
+      if (x.overbooking != null) T.overbooking = clamp(+x.overbooking || 0, 0, 0.12);
+      vendite(G); return ok('Tariffe aggiornate');
+    },
+    ricerca(G, { tipo, da, a, base }) {
+      const Rr = D.RICERCHE[tipo]; if (!Rr) return err('Ricerca sconosciuta');
+      if (tipo === 'domanda' && (!da || !a || da === a)) return err('Scegli due aeroporti');
+      if (tipo === 'area' && !G.basi.includes(base)) return err('Scegli una base');
+      if (G.ricerche.some(r => !r.fatta && r.tipo === tipo && r.da === da && r.a === a && r.base === base)) return err('Ricerca già in corso');
+      if (G.cassa < Rr.costo) return err(`Servono ${eur(Rr.costo)}`);
+      paga(G, Rr.costo, 'marketing');
+      G.ricerche.push({ id: 'r' + (G.seq++), tipo, da, a, base, inizio: G.ora, fine: G.ora + Rr.giorni * GIORNO, fatta: false });
+      return ok(`${Rr.nome} commissionato: pronto tra ${Rr.giorni} giorni`);
+    },
+    decidi(G, i, si) { return decidi(G, i, si); },
+    progetto(G, tipo) { return avviaProgetto(G, tipo); },
+    quotazione(G, quota = 0.3) {
+      const B = G.borsa; if (B.quotata) return err('Sei già quotato');
+      if (valoreCompagnia(G) < 25e6) return err('Per quotarti serve un valore della compagnia di almeno 25 M€');
+      if (G.ora - G.inizio < 60 * GIORNO) return err('Servono almeno 60 giorni di storia per la quotazione');
+      quota = clamp(quota, 0.1, 0.45);
+      const cap = valoreEquo(G), nuove = AZIONI * quota / (1 - quota), prezzo = cap / AZIONI, incasso = Math.round(nuove * prezzo * 0.94);
+      Object.assign(B, { quotata: true, azioni: AZIONI + nuove, mie: AZIONI, prezzo, storico: [{ t: G.ora, p: prezzo }], ipo: G.ora, dividendi: 0 });
+      G.cassa += incasso; G.cda.fiducia = Math.min(100, G.cda.fiducia + 5);
+      notizia(G, `Quotazione in borsa riuscita: venduto il ${Math.round(quota * 100)}% a ${prezzo.toFixed(2)} € per azione, incassati ${eur(incasso)}.`, 'buona', true);
+      return ok('Sei in borsa!');
+    },
+    aumentoCapitale(G, quota = 0.1) {
+      const B = G.borsa; if (!B.quotata) return err('Prima serve la quotazione');
+      const nuove = B.azioni * quota; if (B.mie / (B.azioni + nuove) < 0.51) return err('Scenderesti sotto il 51%: perderesti il controllo');
+      const incasso = Math.round(nuove * B.prezzo * 0.95); B.azioni += nuove; B.prezzo *= 0.96; G.cassa += incasso;
+      return ok(`Aumento di capitale: incassati ${eur(incasso)}`);
+    },
+    dividendo(G, importo) {
+      const B = G.borsa; if (!B.quotata) return err('Prima serve la quotazione');
+      importo = Math.round(importo); if (importo <= 0 || G.cassa < importo) return err('Cassa insufficiente');
+      G.cassa -= importo; B.dividendi += importo; B.prezzo *= 1 + Math.min(0.06, importo / (B.prezzo * B.azioni) * 2); G.cda.fiducia = Math.min(100, G.cda.fiducia + 3);
+      return ok(`Dividendo di ${eur(importo)} pagato`);
+    },
+    riacquisto(G, importo) {
+      const B = G.borsa; if (!B.quotata) return err('Prima serve la quotazione');
+      importo = Math.round(importo); if (importo <= 0 || G.cassa < importo) return err('Cassa insufficiente');
+      const n = Math.min(importo / (B.prezzo * 1.02), B.azioni - B.mie); if (n <= 0) return err('Hai già tutte le azioni');
+      G.cassa -= n * B.prezzo * 1.02; B.azioni -= n; B.prezzo *= 1.01;
+      return ok(`Riacquistate ${num(n)} azioni`);
+    },
     premio(G) { const costo = totPersonale(G) * 1500; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); paga(G, costo, 'personale'); G.morale = Math.min(100, G.morale + 12); return ok(`Premio distribuito (${eur(costo)}): morale +12`); },
     limitePrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return Math.max(0, Math.round((0.6 * f + 3e6 + Math.max(0, G.stat.utile) * 0.3 - debitoTot(G)) / 1e5) * 1e5); },
-    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return 0.05 + 0.04 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.02 : 0); },
+    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return 0.05 + 0.04 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.02 : 0) + (G.cda && G.cda.fiducia < 25 ? 0.015 : 0); },
     prestito(G, importo) {
       if (importo <= 0 || importo > A.limitePrestito(G)) return err('Importo oltre il limite concesso dalla banca');
       const tasso = A.tassoPrestito(G); G.debiti.push({ id: 'd' + (G.seq++), capitale: importo, tasso, rata: Math.round(importo / (5 * 365)) }); G.cassa += importo;
@@ -1417,6 +1827,6 @@ const SIM = (() => {
     }
   };
 
-  return { rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

@@ -213,17 +213,17 @@ function graficoUtile(dati) {
   });
   return `<div class="legenda"><span><i style="background:var(--series-1)"></i>Utile</span><span><i style="background:var(--div-neg)"></i>Perdita</span></div><div class="grafico">${s}</svg></div>`;
 }
-function graficoLinea(dati) {
+function graficoLinea(dati, fmt = eur) {
   const W = 640, H = 200, ml = 56, mr = 6, mt = 10, mb = 24, iw = W - ml - mr, ih = H - mt - mb;
   const vals = dati.map(d => d.v), mn = Math.min(0, ...vals), mx = Math.max(1, ...vals), passo = passoBello((mx - mn) / 4);
   const lo = Math.floor(mn / passo) * passo, hi = Math.ceil(mx / passo) * passo;
   const x = i => ml + (dati.length < 2 ? iw / 2 : i / (dati.length - 1) * iw), y = v => mt + (hi - v) / (hi - lo) * ih;
   let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cassa">`;
-  for (let v = lo; v <= hi + 1e-6; v += passo) s += `<line class="${v === 0 ? 'zero' : 'griglia-l'}" x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}"/><text class="asse" x="${ml - 6}" y="${y(v) + 4}" text-anchor="end">${mln(v)}</text>`;
+  for (let v = lo; v <= hi + 1e-6; v += passo) s += `<line class="${v === 0 ? 'zero' : 'griglia-l'}" x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}"/><text class="asse" x="${ml - 6}" y="${y(v) + 4}" text-anchor="end">${fmt === eur ? mln(v) : fmt(v)}</text>`;
   const pts = dati.map((d, i) => `${x(i)},${y(d.v)}`).join(' ');
   if (dati.length > 1) s += `<polygon class="area" points="${x(0)},${y(lo)} ${pts} ${x(dati.length - 1)},${y(lo)}"/><polyline class="linea" points="${pts}"/>`;
   const col = iw / Math.max(1, dati.length);
-  dati.forEach((d, i) => { s += `<g data-tip="${h(`${fmtGiorno(d.t)}: ${eur(d.v)}`)}"><rect class="bersaglio" x="${x(i) - col / 2}" y="${mt}" width="${col}" height="${ih}"/><circle class="punto" cx="${x(i)}" cy="${y(d.v)}" r="4"/></g>${etichetteX(dati, i, x(i), H)}`; });
+  dati.forEach((d, i) => { s += `<g data-tip="${h(`${fmtGiorno(d.t)}: ${fmt(d.v)}`)}"><rect class="bersaglio" x="${x(i) - col / 2}" y="${mt}" width="${col}" height="${ih}"/><circle class="punto" cx="${x(i)}" cy="${y(d.v)}" r="4"/></g>${etichetteX(dati, i, x(i), H)}`; });
   return `<div class="grafico">${s}</svg></div>`;
 }
 // Barre impilate dei ricavi per classe (ordine fisso Business, Premium, Economy; 2 px di stacco tra i segmenti)
@@ -285,7 +285,7 @@ const SCEN = () => D.SCENARI[G.scenario];
 
 VISTE.panoramica = () => `
   <div class="testata"><h1>${h(G.nome)}</h1><span class="sotto">${SCEN().nome} · giorno ${Math.floor((G.ora - G.inizio) / GIORNO) + 1} · basi ${G.basi.join(', ')}${G.hub.length ? ' · hub ' + G.hub.join(', ') : ''}</span></div>
-  ${primiPassi()}
+  ${bannerRiunione()}${primiPassi()}
   <div class="griglia g2 sopra"><div class="pannello" id="consigli">${consigliHTML()}</div><div class="pannello" id="missioni">${missioniHTML()}</div></div>
   <div class="griglia g-21 mt">
     <div class="pannello"><div id="mappaPosto"></div><p class="nota">Aerei in volo in blu, a terra in grigio, in manutenzione in giallo, guasti in rosso. Basi in blu, hub con l’anello giallo. Le rotte tratteggiate sono aperte ma senza voli.</p></div>
@@ -366,7 +366,7 @@ function tabellaRegistro() {
       <td>${barretta(r.posti ? r.pax / r.posti : 0, `${r.pax}/${r.posti}`, [2, 2])}</td><td class="num">${rc.J ? eur(rc.J) : ''}</td><td class="num">${rc.W ? eur(rc.W) : ''}</td><td class="num">${eur(rc.Y)}</td><td class="num">${eur(r.ricavi)}</td><td class="num">${eur(r.costi)}</td><td class="num">${segno(r.ricavi - r.costi)}</td>
       <td>${r.stato === 'canc' ? `<span class="badge b-err">Cancellato</span> <span class="muto piccolo">${h(r.motivo)}</span>` : r.rit > 15 ? '<span class="badge b-warn">In ritardo</span>' : '<span class="badge b-ok">Puntuale</span>'}</td></tr>`; }).join('')}</tbody></table>`;
 }
-const VOCI = { carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
+const VOCI = { negati: 'Passeggeri lasciati a terra', prodotto: 'Prodotto e fedeltà (fissi)', carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
 function dettaglioVolo(r) {
   const pc = r.paxC || SIM.zero(), rc = r.ricaviC || SIM.zero(), cab = r.cab || SIM.zero();
   modale({ titolo: `Volo ${h(r.num)} · ${r.da} → ${r.a}`, corpo: `<p>${fmtData(r.dep)} · ${h(r.marche)} · equipaggio ${h(r.equip || '—')} (base ${h(r.base || '—')}) · ${r.stato === 'canc' ? 'cancellato: ' + h(r.motivo) : `partito ${fmtOra(r.depEff)} (ritardo ${r.rit}′), atterrato ${fmtOra(r.arrEff)}`}</p>
@@ -589,13 +589,13 @@ function formApriRotta() {
 function infoRotta() {
   const a = $('#rDa')?.value, b = $('#rA')?.value, box = $('#infoRotta'); if (!box) return;
   if (!a || !b || a === b) { box.innerHTML = '<p class="muto">Scegli origine e destinazione per vedere l’analisi di mercato.</p>'; return; }
-  const d = SIM.km(a, b), domani = SIM.giornoDopo(SIM.mezzanotte(G.ora)), am = SIM.analisiMercato(G, a, b, domani, 3, SIM.prezzoRif(d));
+  const d = SIM.km(a, b), domani = SIM.giornoDopo(SIM.mezzanotte(G.ora)), am = SIM.analisiMercato(G, a, b, domani, 3, SIM.prezzoRif(d), 1, { stima: true }), forb = am.studiato ? 0.08 : 0.3, rng = v => am.studiato ? num(v) : `${num(v * (1 - forb))}–${num(v * (1 + forb))}`;
   const modelli = [...new Set(flotta().map(x => x.modello))], ok = modelli.filter(x => MOD[x].autonomia >= d), slot = [a, b].filter(i => AP[i].slot), q = am.quote;
   box.innerHTML = `<table><tbody>
     <tr><td>Distanza</td><td><b>${num(d)} km</b> · ${d > 5000 ? `${fmtDur(SIM.durata(d, 'A359'))} con un A350` : `${fmtDur(SIM.durata(d, 'A320'))} con un A320, ${fmtDur(SIM.durata(d, 'ATR72'))} con un ATR`}${AP[a].fuso !== AP[b].fuso ? ` · fuso orario ${fusoTxt(AP[a].fuso)} → ${fusoTxt(AP[b].fuso)}` : ''}</td></tr>
-    <tr><td>Domanda totale stimata</td><td><b>${num(am.mercato)}</b> viaggiatori al giorno per direzione (tutti i mezzi)</td></tr>
+    <tr><td>Domanda totale stimata</td><td><b>${rng(am.mercato)}</b> viaggiatori al giorno per direzione (tutti i mezzi) ${am.studiato ? '<span class="badge b-ok">studiata</span>' : `<span class="badge">stima ±30%</span> <button class="piccolo" data-az="studio" data-da="${a}" data-a="${b}">Studio di domanda · 15k</button>`}</td></tr>
     <tr><td>Clientela</td><td>${CL.map(c => `<span class="chip"><i style="background:var(--cl-${c})"></i>${CLS[c].nome} ${pct(q[c])}</span>`).join('')}</td></tr>
-    <tr><td>Con 3 voli al giorno ai prezzi di riferimento</td><td>circa <b>${num(am.pax / am.maturita)}</b> passeggeri al giorno per direzione a regime (${pct(am.quota)} di quota)</td></tr>
+    <tr><td>Con 3 voli al giorno ai prezzi di riferimento</td><td>circa <b>${rng(am.pax / am.maturita)}</b> passeggeri al giorno per direzione a regime (${pct(am.quota)} di quota)</td></tr>
     <tr><td>Concorrenti</td><td>${am.rivali.length ? am.rivali.map(x => `<span class="pallino" style="background:${x.riv.colore}"></span>${h(x.riv.nome)} (${x.freq} voli/g, ${pct(x.quota)})`).join(' · ') : 'nessuno'} · ${d > 3000 ? 'altre compagnie' : 'treno, auto e traghetti'} ${pct(am.altri)}</td></tr>
     <tr><td>Aerei che possono volarci</td><td>${modelli.length ? (ok.length ? ok.map(x => MOD[x].nome).join(', ') : '<span class="neg">nessuno della tua flotta</span>') : '—'}</td></tr>
     <tr><td>Slot</td><td>${slot.length ? slot.map(i => `${i} è regolato: hai ${G.slot[i] || 0} slot`).join('<br>') : 'nessun aeroporto a slot'}</td></tr>
@@ -609,13 +609,13 @@ function analisiPrezzi(k, cl = UI.classeAnalisi) {
   const capC = cap[cl] || (cl === 'Y' ? 150 * f : 12 * f);
   const righe = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7].map(m => {
     const p = Math.round(ref * SIM.multClasse(cl, d) * m), prezzi = { pJ: r.pJ, pW: r.pW, pY: r.pY, ['p' + cl]: p };
-    const am = SIM.analisiMercato(G, a, b, domani, f, prezzi.pY), dom = SIM.domandaClassi(am.pax, am.quote, prezzi, am.ref, am.km);
+    const am = SIM.analisiMercato(G, a, b, domani, f, prezzi.pY, 1, { stima: true }), dom = SIM.domandaClassi(am.pax, am.quote, prezzi, am.ref, am.km, am.val);
     const pax = Math.min(capC, dom[cl]);
     return { p, pax, lf: pax / capC, ric: pax * p, quota: am.quota };
   });
   const best = righe.reduce((x, y) => y.ric > x.ric ? y : x);
   modale({
-    titolo: `Analisi prezzi ${a}→${b}`, larga: true,
+    titolo: `Analisi prezzi ${a}→${b}${SIM.studiato(G, a, b) ? '' : ' · stima generica ±30%'}`, larga: true,
     corpo: `<div class="segmenti" style="margin-bottom:10px">${CL.map(c => `<button data-az="analisi-cl" data-k="${k}" data-c="${c}" class="${c === cl ? 'on' : ''}">${CLS[c].nome}</button>`).join('')}</div>
       <p class="piccolo">Stima per domani con ${f} voli al giorno in questa direzione e ${num(capC)} posti ${CLS[cl].nome} offerti${cap[cl] ? '' : ' (ipotetici: nessun tuo aereo ha questa classe)'}. Prezzo attuale: <b>${eur(r['p' + cl])}</b>. ${cl === 'Y' ? 'Il prezzo Economy cambia anche la quota di mercato complessiva.' : 'Le altre classi restano ai prezzi attuali.'}</p>
       <table><thead><tr><th class="num">Prezzo ${CLS[cl].nome}</th><th class="num">Passeggeri/g</th><th>Riempimento</th><th class="num">Ricavi ${CLS[cl].breve}/g</th><th></th></tr></thead><tbody>
@@ -821,7 +821,7 @@ VISTE.personale = () => {
   s += `<div class="griglia g2 mt">
     <div class="pannello"><h2>Politiche</h2><div class="form">
       <label>Livello stipendi<select data-az-change="stipendio">${opzioni([[0.9, '90% (risparmio, morale giù)'], [1, '100% (di mercato)'], [1.1, '110% (morale su)'], [1.2, '120% (morale alto)']], G.stipendio)}</select></label>
-      <label>Servizio di bordo<select data-az-change="servizio">${opzioni(Object.entries(D.SERVIZIO).map(([k, x]) => [k, `${x.nome} · ${x.costo} €/pax`]), G.servizio)}</select></label></div>
+      <p class="piccolo pieno" style="margin:0">Il servizio di bordo si sceglie classe per classe in <a href="#/prodotto">Bordo e tariffe</a>.</p></div>
       <div class="filtri mt"><button data-az="premio">Distribuisci un premio (${eur(SIM.totPersonale(G) * 1500)})</button></div></div>
     <div class="pannello"><h2>Come funziona</h2><p class="piccolo" style="margin:0">Ogni settimana i turni vengono assegnati agli equipaggi della stessa base e con la stessa abilitazione. Un turno di lungo raggio, o un turno oltre le 13 ore, vuole 3 piloti. Puoi scegliere tu l’equipaggio di un turno dalla Programmazione. I voli di un turno senza equipaggio vengono cancellati. Assunzione normale: 10 giorni; urgente tramite agenzia: 2 giorni, costa 2,5 volte. Licenziare costa 60 giorni di paga e abbassa il morale.</p></div>
   </div>`;
@@ -885,6 +885,7 @@ VISTE.finanze = () => {
   <div class="griglia g2 mt">
     <div class="pannello"><h2>Conto economico</h2><div class="tab-wrap"><table><thead><tr><th>Voce</th><th class="num">Ieri</th><th class="num">7 giorni</th><th class="num">30 giorni</th></tr></thead><tbody>
       ${CL.map(c => `<tr><td>Biglietti ${CLS[c].nome}</td><td class="num">${eur(ric(c, 1))}</td><td class="num">${eur(ric(c, 7))}</td><td class="num">${eur(ric(c, 30))}</td></tr>`).join('')}
+      <tr><td>Servizi extra <span class="muto piccolo">bagagli, posti, pasti</span></td><td class="num">${eur(ieri?.extra || 0)}</td><td class="num">${eur(G.storico.slice(-7).reduce((a, x) => a + (x.extra || 0), 0))}</td><td class="num">${eur(G.storico.slice(-30).reduce((a, x) => a + (x.extra || 0), 0))}</td></tr>
       <tr><td><b>Totale ricavi</b> <span class="muto piccolo">di cui coincidenze</span></td><td class="num"><b>${eur(ieri?.ricavi || 0)}</b> <span class="muto piccolo">${mln(ieri?.ricaviTransito || 0)}</span></td><td class="num"><b>${eur(u7.ricavi)}</b> <span class="muto piccolo">${mln(u7.ricaviTransito)}</span></td><td class="num"><b>${eur(u30.ricavi)}</b> <span class="muto piccolo">${mln(u30.ricaviTransito)}</span></td></tr>
       ${Object.keys(VOCI).map(k => `<tr><td>${VOCI[k]}</td><td class="num">${eur(-(ieri?.dettaglio[k] || 0))}</td><td class="num">${eur(-voce(k, 7))}</td><td class="num">${eur(-voce(k, 30))}</td></tr>`).join('')}
       <tr><td><b>Utile</b></td><td class="num"><b>${segno(ieri?.utile || 0)}</b></td><td class="num"><b>${segno(u7.utile)}</b></td><td class="num"><b>${segno(u30.utile)}</b></td></tr>
@@ -894,7 +895,8 @@ VISTE.finanze = () => {
       <h3 class="mt">Nuovo prestito</h3>
       <p class="piccolo">La banca ti concede fino a <b>${eur(lim)}</b> al <b>${(tasso * 100).toFixed(1)}%</b> annuo, da restituire in 5 anni con rate giornaliere.</p>
       <div class="filtri"><input type="number" id="importoPrestito" min="0" step="500000" value="${Math.min(lim, 5e6)}" style="width:140px"><button data-az="prestito" ${lim <= 0 ? 'disabled' : ''}>Chiedi prestito</button></div></div>
-  </div>`;
+  </div>
+  ${pannelloBorsa()}`;
 };
 
 /* Concorrenza */
@@ -930,6 +932,162 @@ async function caricaClassifica(el) {
     const c = await Archivio.classifica();
     el.innerHTML = c.length ? `<table><thead><tr><th>#</th><th>Compagnia</th><th>Scenario</th><th class="num">Giorni</th><th class="num">Punteggio</th></tr></thead><tbody>${c.slice(0, 15).map((x, i) => `<tr><td>${i + 1}</td><td>${h(x.nome)}</td><td>${h(D.SCENARI[x.scenario]?.nome || x.scenario)}</td><td class="num">${x.giorni}</td><td class="num"><b>${num(x.punteggio)}</b></td></tr>`).join('')}</tbody></table>` : '<p class="muto">Nessuno scenario completato finora. Il punteggio dipende dal valore della compagnia e dai giorni risparmiati.</p>';
   } catch { el.innerHTML = '<p class="muto">Classifica non disponibile.</p>'; }
+}
+
+/* ---------- Gestione aziendale: Direzione, Bordo e tariffe, Mercati, Borsa ---------- */
+const iniziali = n => n.split(' ').map(x => x[0]).join('').slice(0, 2);
+const giorniA = t => Math.max(0, Math.ceil((t - G.ora) / GIORNO));
+function riunioneAperta() { const r = G.direzione?.riunione; return r && !r.chiusa ? r.proposte.filter(p => !p.esito).length : 0; }
+function bannerRiunione() {
+  const n = riunioneAperta(); if (!n) return '';
+  return `<div class="banner-riunione"><span class="br-icona" aria-hidden="true">☕</span><div><b>Riunione di direzione in corso</b><span class="piccolo">${n === 1 ? 'Una proposta aspetta' : `${n} proposte aspettano`} la tua decisione</span></div><a class="btn primario" href="#/direzione">Vai alla riunione</a></div>`;
+}
+function cartaProposta(p, i) {
+  const dir = G.direzione.dirigenti[p.ruolo], DD = D.DIRIGENTI[p.ruolo];
+  const contro = p.contro && G.direzione.dirigenti[p.contro.ruolo];
+  return `<div class="proposta ${p.esito || ''}">
+    <div class="prop-testa"><span class="avatar r-${p.ruolo}" aria-hidden="true">${h(iniziali(dir.nome))}</span><div><b>${h(dir.nome)}</b><small>${DD.ruolo} · ${DD.area}</small></div>${p.costo ? `<span class="prop-costo">${eur(p.costo)}</span>` : '<span class="prop-costo zero">nessun costo</span>'}</div>
+    <p>${h(p.testo)}</p>
+    ${p.progetto ? `<p class="piccolo muto">Effetto: ${h(D.PROGETTI[p.progetto].effetto)} · pronto in ${D.PROGETTI[p.progetto].giorni} giorni</p>` : ''}
+    ${contro ? `<div class="contro"><span class="avatar piccola r-${p.contro.ruolo}" aria-hidden="true">${h(iniziali(contro.nome))}</span><span><b>${h(contro.nome)}</b> (${D.DIRIGENTI[p.contro.ruolo].ruolo}): ${h(p.contro.testo)}</span></div>` : ''}
+    ${p.esito ? `<div class="esito-prop">${p.esito === 'approvata' ? '✓ Approvata' : p.esito === 'bocciata' ? '✕ Bocciata' : 'Scaduta'}</div>` : `<div class="azioni"><button class="primario" data-az="decidi" data-i="${i}" data-si="1">Approva</button><button data-az="decidi" data-i="${i}">Boccia</button></div>`}
+  </div>`;
+}
+VISTE.direzione = () => {
+  const R = G.direzione, riu = R.riunione, S = D.STRATEGIE[G.strategia], cda = SIM.statoCda(G), sem = G.cda.semestre;
+  const lun = SIM.giornoSett(G.ora), prossima = `${lun === 0 && SIM.loc(G.ora).getUTCHours() < 8 ? 'oggi' : 'lunedì'} alle 08:00`;
+  const attivi = R.progetti.filter(p => !p.fatto), fatti = R.progetti.filter(p => p.fatto);
+  const disponibili = Object.entries(D.PROGETTI).filter(([k]) => !(G.mod[k] === true) && !attivi.some(p => p.tipo === k));
+  return `<div class="testata"><h1>Direzione</h1><span class="sotto">Posizionamento <b>${S.nome}</b> · fiducia del CdA <b>${Math.round(G.cda.fiducia)}/100</b></span></div>
+  <div class="pannello"><div class="riga" style="margin:0 0 10px"><h2 style="margin:0">Riunione ${riu ? `di ${fmtGiorno(riu.t)}` : ''}</h2><span class="piccolo muto">Prossima riunione ${prossima}</span></div>
+    ${riu && riu.proposte.length ? `<div class="proposte">${riu.proposte.map(cartaProposta).join('')}</div>` : '<p class="muto">Nessuna proposta sul tavolo.</p>'}
+    ${!riunioneAperta() ? `<div class="filtri mt"><button data-az="convoca" ${R.ultimaStraordinaria && G.ora - R.ultimaStraordinaria < 7 * GIORNO ? 'disabled' : ''}>Convoca una riunione straordinaria</button><span class="piccolo muto">Al massimo una a settimana</span></div>` : ''}
+  </div>
+  <div class="griglia g2 mt">
+    <div class="pannello"><h2>Il tuo team</h2><ul class="team">${Object.entries(R.dirigenti).map(([k, d]) => `<li><span class="avatar r-${k}" aria-hidden="true">${h(iniziali(d.nome))}</span><div><b>${h(d.nome)}</b><small>${D.DIRIGENTI[k].ruolo} · ${D.DIRIGENTI[k].motto}</small>${barretta(d.umore / 100, `umore ${Math.round(d.umore)}`, [2, 2])}</div></li>`).join('')}</ul>
+      <p class="nota">Bocciare spesso le proposte di un dirigente lo demotiva: sotto 15 di umore si dimette.</p></div>
+    <div class="pannello"><h2>Consiglio di amministrazione</h2>
+      <div class="piccolo">Fiducia nella tua gestione</div>${barretta(G.cda.fiducia / 100, Math.round(G.cda.fiducia) + '/100', [2, 2])}
+      <p class="piccolo">Obiettivi del semestre · mancano <b>${giorniA(sem.fine)} giorni</b></p>
+      ${cda.map(o => `<div class="piccolo">${h(o.t)} · ${h(o.s)}</div>${barretta(clamp01(o.v), o.v >= 1 ? '✓' : pct(clamp01(o.v)), [2, 2])}`).join('')}
+      <p class="nota">A fine semestre: 3 obiettivi = fiducia +15, 2 = +8, 1 = −6, nessuno = −20. Con fiducia sotto 25 le banche alzano i tassi e il titolo in borsa vale meno.</p>
+      ${G.cda.storico.length ? `<details><summary class="piccolo">Semestri passati</summary><ul class="piccolo">${G.cda.storico.map(x => `<li>${fmtGiorno(x.t)}: ${x.fatti}/3 obiettivi, fiducia ${x.delta > 0 ? '+' : ''}${x.delta}</li>`).join('')}</ul></details>` : ''}
+    </div>
+  </div>
+  <div class="pannello mt"><h2>Posizionamento</h2><div class="strategie">${Object.entries(D.STRATEGIE).map(([k, x]) => `<div class="strategia ${k === G.strategia ? 'on' : ''}"><b>${x.nome}</b><p class="piccolo">${h(x.descr)}</p>
+      <p class="piccolo muto">Clienti Business ×${x.quote.J} · Premium ×${x.quote.W}${x.tolleranza !== 1 ? ` · supplementi ${x.tolleranza < 1 ? 'tollerati' : 'mal visti'}` : ''}${x.sede !== 1 ? ` · costi di sede ×${x.sede}` : ''}</p>
+      ${k === G.strategia ? '<span class="badge b-ok">Attuale</span>' : `<button class="piccolo" data-az="strategia" data-s="${k}">Passa a ${x.nome} · 300.000 €</button>`}</div>`).join('')}</div>
+    <p class="nota">Il posizionamento cambia la clientela e ciò che si aspetta dal prodotto: regola anche il servizio in Bordo e tariffe. Si cambia al massimo ogni 6 mesi.</p></div>
+  <div class="griglia g2 mt">
+    <div class="pannello"><h2>Progetti</h2>
+      ${attivi.length ? `<ul class="progetti">${attivi.map(p => `<li><b>${h(p.nome)}</b> <span class="piccolo muto">pronto il ${fmtGiorno(p.fine)}</span>${barretta(clamp01((G.ora - p.inizio) / (p.fine - p.inizio)), giorniA(p.fine) + ' giorni', [2, 2])}</li>`).join('')}</ul>` : '<p class="muto piccolo">Nessun progetto in corso.</p>'}
+      ${fatti.length ? `<p class="piccolo">Completati: ${fatti.map(p => h(p.nome)).join(' · ')}</p>` : ''}
+      <details class="mt"><summary>Avvia un progetto senza aspettare la riunione</summary><ul class="progetti">${disponibili.map(([k, P]) => { const costo = P.costo + (P.perAereo || 0) * flotta().length; return `<li><div><b>${h(P.nome)}</b> <span class="piccolo muto">(${D.DIRIGENTI[P.ruolo].ruolo})</span><br><span class="piccolo">${h(P.effetto)} · ${P.giorni} giorni</span></div><button class="piccolo" data-az="progetto" data-t="${k}" ${G.cassa < costo ? 'disabled' : ''}>${costo ? eur(costo) : 'Avvia'}</button></li>`; }).join('')}</ul></details></div>
+    <div class="pannello"><h2>Verbale</h2>${R.verbale.length ? `<ul class="verbale">${R.verbale.slice(0, 15).map(v => `<li><span class="badge ${v.esito === 'Approvata' ? 'b-ok' : v.esito === 'Bocciata' ? 'b-err' : ''}">${v.esito}</span> <span class="piccolo muto">${fmtGiorno(v.t)} · ${D.DIRIGENTI[v.ruolo].ruolo}</span><br><span class="piccolo">${h(v.titolo)}</span></li>`).join('')}</ul>` : '<p class="muto piccolo">Ancora nessuna decisione.</p>'}</div>
+  </div>`;
+};
+const clamp01 = x => Math.max(0, Math.min(1, x || 0));
+
+// Bordo e tariffe
+VISTE.prodotto = () => {
+  const A = SIM.analisiProdotto(G), T = G.tariffe, u7 = G.storico.slice(-7), extra7 = u7.reduce((s, x) => s + (x.extra || 0), 0), pax7 = u7.reduce((s, x) => s + x.pax, 0), neg7 = u7.reduce((s, x) => s + (x.negati || 0), 0);
+  const sel = (c, el) => { const E = D.BORDO[el]; if (E.classi && !E.classi.includes(c)) return '<span class="muto">—</span>'; const bloc = E.richiede && !G.mod[E.richiede];
+    return `<select data-bordo="${el}" data-c="${c}" ${bloc ? 'disabled title="Serve il Wi‑Fi satellitare (progetto del CTO)"' : ''} aria-label="${E.nome} ${CLS[c].nome}">${opzioni(E.livelli.map((L, i) => [i, L.nome]), bloc ? 0 : G.bordo[c][el])}</select>`; };
+  const npsC = n => n >= 40 ? 'ok' : n >= 15 ? 'medio' : 'neg';
+  const rotte = Object.keys(G.rotte), rk = UI.rottaBiglietto && G.rotte[UI.rottaBiglietto] ? UI.rottaBiglietto : rotte[0];
+  return `<div class="testata"><h1>Bordo e tariffe</h1><span class="sotto">Il prodotto che vendi: cosa offri a bordo in ogni classe e come componi il prezzo</span></div>
+  <div class="pannello"><h2>Esperienza a bordo</h2><div class="tab-wrap"><table class="bordo"><thead><tr><th></th>${CL.map(c => `<th><span class="chip"><i style="background:var(--cl-${c})"></i>${CLS[c].nome}</span></th>`).join('')}</tr></thead><tbody>
+    ${Object.entries(D.BORDO).map(([el, E]) => `<tr><td><b>${E.nome}</b>${E.richiede && !G.mod[E.richiede] ? '<br><span class="piccolo muto">serve il Wi‑Fi satellitare</span>' : ''}</td>${CL.map(c => `<td>${sel(c, el)}</td>`).join('')}</tr>`).join('')}
+    <tr class="sintesi"><td>Gradimento</td>${CL.map(c => `<td><b class="${A[c].valore >= 1 ? 'pos' : 'neg'}">${A[c].valore >= 1 ? '+' : ''}${Math.round((A[c].valore - 1) * 100)}%</b> <span class="piccolo muto">rispetto a ciò che si aspettano</span></td>`).join('')}</tr>
+    <tr class="sintesi"><td>Soddisfazione (NPS)</td>${CL.map(c => `<td><b class="nps ${npsC(A[c].nps)}">${A[c].nps > 0 ? '+' : ''}${A[c].nps}</b></td>`).join('')}</tr>
+    <tr class="sintesi"><td>Costo a passeggero <span class="piccolo muto">(volo di 2 h)</span></td>${CL.map(c => `<td>${eur(A[c].costo)}${A[c].extra ? ` · <span class="pos">+${eur(A[c].extra)} venduti</span>` : ''}</td>`).join('')}</tr>
+  </tbody></table></div>
+  <p class="piccolo">Effetto sulla reputazione: <b>${A.rep >= 0 ? '+' : ''}${A.rep.toFixed(1)}</b> punti (con il posizionamento ${D.STRATEGIE[G.strategia].nome})${A.fisso ? ` · costi fissi del prodotto ${eur(A.fisso)} al giorno` : ''}.</p>
+  <p class="nota">Il gradimento cambia quanto i clienti sono disposti a pagare: +10% di gradimento vale circa +10% sul prezzo che accettano. Pasti, sedili e intrattenimento contano di più sui voli lunghi. Con il posizionamento premium i clienti si aspettano di più, con il low cost di meno.</p></div>
+  <div class="griglia g2 mt">
+    <div class="pannello"><h2>Composizione del prezzo</h2><div class="form">
+      <label>Bagaglio in stiva (Economy)<span class="input-euro"><input type="number" min="0" max="200" step="1" value="${T.bagaglio}" data-tar="bagaglio"> €</span><small class="muto">0 = incluso nel biglietto</small></label>
+      <label>Scelta del posto<span class="input-euro"><input type="number" min="0" max="200" step="1" value="${T.posto}" data-tar="posto"> €</span><small class="muto">0 = gratis</small></label>
+      <label>Imbarco prioritario<span class="input-euro"><input type="number" min="0" max="200" step="1" value="${T.priorita}" data-tar="priorita"> €</span><small class="muto">0 = non in vendita</small></label>
+      <label>Prezzi dinamici<select data-tar-sel="dinamico">${Object.entries(D.DINAMICO).map(([k, x]) => `<option value="${k}" ${T.dinamico === k ? 'selected' : ''} ${x.richiede && !G.mod[x.richiede] ? 'disabled' : ''}>${x.nome}${x.rialzo ? ` · fino a +${Math.round(x.rialzo * 100)}% sui voli pieni` : ''}${x.richiede && !G.mod[x.richiede] ? ' (serve revenue management)' : ''}</option>`).join('')}</select></label>
+      <label>Overbooking<select data-tar-sel="overbooking">${opzioni([[0, 'Nessuno'], [0.03, '+3% di biglietti'], [0.06, '+6% di biglietti'], [0.1, '+10% di biglietti']], T.overbooking)}</select><small class="muto">Circa il 6% non si presenta; chi resta a terra va risarcito</small></label>
+      <label class="interruttore pieno" style="border:0"><input type="checkbox" data-tar-chk="famiglie" ${T.famiglie ? 'checked' : ''}><span class="lev" aria-hidden="true"></span><span><b>Tariffe Light, Standard e Flex</b><small>Chi vuole flessibilità paga di più: circa +5% per biglietto, con qualche cliente in meno</small></span></label>
+    </div>
+    <div class="sett-sintesi"><div><small>Servizi extra 7 giorni</small><b>${eur(extra7)}</b></div><div><small>Extra per passeggero</small><b>${eur(pax7 ? extra7 / pax7 : 0)}</b></div><div><small>Lasciati a terra 7 giorni</small><b class="${neg7 ? 'neg' : ''}">${num(neg7)}</b></div></div></div>
+    <div class="pannello"><h2>Quanto guadagni per passeggero</h2>${rk ? (() => {
+      const s = statsRotta(rk), [a, b] = rk.split('-'), r = G.rotte[rk];
+      const p = s.pax ? { ric: s.ricavi / s.pax, cost: s.costi / s.pax } : null;
+      return `<label class="campo">Rotta<select id="rottaBiglietto">${opzioni(rotte.map(k => [k, k.replace('-', '–')]), rk)}</select></label>
+        <table class="mt"><tbody>
+        <tr><td>Tariffe in vendita</td><td class="num">${CL.map(c => `${CLS[c].breve} ${eur(r['p' + c])}`).join(' · ')}</td></tr>
+        ${p ? `<tr><td>Incasso medio a passeggero <span class="piccolo muto">(biglietto + extra, ultimi 7 giorni)</span></td><td class="num"><b>${eur(p.ric)}</b></td></tr>
+        <tr><td>Costi del volo a passeggero</td><td class="num">−${eur(p.cost)}</td></tr>
+        <tr><td><b>Margine a passeggero</b></td><td class="num"><b>${segno(p.ric - p.cost)}</b></td></tr>` : '<tr><td colspan="2" class="muto">Nessun volo negli ultimi 7 giorni</td></tr>'}
+        <tr><td>Tasse aeroportuali a passeggero</td><td class="num">${eur(AP[a].tassa)} a ${a} · ${eur(AP[b].tassa)} a ${b}</td></tr>
+        </tbody></table><p class="nota">Il margine non conta i costi fissi (leasing, stipendi, sede).</p>`;
+    })() : '<p class="muto">Nessuna rotta aperta.</p>'}</div>
+  </div>
+  <div class="pannello mt"><h2>Sondaggio passeggeri</h2>${G.sondaggio ? `<p class="piccolo muto">Del ${fmtGiorno(G.sondaggio.t)}</p><div class="griglia g3">${CL.map(c => { const x = G.sondaggio.classi[c]; return `<div><b>${CLS[c].nome}</b> · NPS ${x.nps}<ul class="piccolo">${x.idee.length ? x.idee.map(i => `<li>${h(i.nome)}: vorrebbero «${h(i.verso)}» (+${Math.round(i.guadagno * 100)}% di gradimento, ${i.costo > 0 ? '+' + eur(i.costo) + ' a passeggero' : 'senza costi in più'})${i.bloccato ? ' · serve il Wi‑Fi' : ''}</li>`).join('') : '<li>Nessuna richiesta importante</li>'}</ul></div>`; }).join('')}</div>` : `<p class="muto">Nessun sondaggio recente.</p>`}
+    <div class="filtri"><button data-az="ricerca-rapida" data-t="sondaggio">Commissiona un sondaggio · ${eur(D.RICERCHE.sondaggio.costo)}</button></div></div>`;
+};
+
+// Mercati e ricerche
+VISTE.mercati = () => {
+  const prop = SIM.proposteDestinazioni(G, 8), ser = G.serie, intel = SIM.intel(G);
+  const tipo = UI.rcTipo || 'domanda', Rr = D.RICERCHE[tipo], ordina = perContinente();
+  const mosse = G.mosseRivali.filter(m => !m.fatta);
+  return `<div class="testata"><h1>Mercati e ricerche</h1><span class="sotto">Dove volare, quanto vale un mercato, cosa fanno i concorrenti</span></div>
+  <div class="griglia g2">
+    <div class="pannello"><h2>Economia</h2><div class="economia">${Object.entries(G.economia).map(([c, v]) => { const prec = ser.length > 4 ? ser.at(-5).econ[c] : 1, d = v - prec; return `<div><small>${c}</small><b class="${v >= 1 ? 'pos' : 'neg'}">${v >= 1 ? '+' : ''}${((v - 1) * 100).toFixed(1)}%</b><span class="piccolo ${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d * 100).toFixed(1)} in un mese</span></div>`; }).join('')}</div>
+      <p class="nota">Domanda di viaggi rispetto alla norma per continente: un’economia forte porta più passeggeri su tutte le rotte che la toccano.</p></div>
+    <div class="pannello"><h2>Cherosene</h2>${ser.length > 1 ? graficoLinea(ser.map(x => ({ t: x.t, v: x.carb })), v => v.toFixed(2) + ' €/kg') : `<p class="muto">Prezzo attuale <b>${G.carburante.toFixed(2)} €/kg</b>. Il grafico compare dopo qualche settimana.</p>`}
+      ${G.copertura ? `<p class="piccolo"><span class="badge b-ok">Copertura attiva</span> prezzo bloccato a ${G.copertura.prezzo.toFixed(2)} €/kg fino al ${fmtGiorno(G.copertura.fine)}</p>` : ''}</div>
+  </div>
+  <div class="pannello mt"><h2>Destinazioni consigliate</h2><div class="tab-wrap"><table><thead><tr><th>Rotta</th><th class="num">Km</th><th>Aereo e voli</th><th>Riempimento stimato</th><th class="num">Margine voli al giorno</th><th>Affidabilità</th><th></th></tr></thead><tbody>
+    ${prop.map(x => `<tr><td><b>${x.da}–${x.a}</b> <span class="muto piccolo">${h(citta(x.a))}, ${h(AP[x.a].nomePaese)}</span>${x.rivali ? `<br><span class="piccolo muto">${x.rivali} concorrenti</span>` : ''}</td><td class="num">${num(x.km)}</td><td class="piccolo">${MOD[x.mod].nome}<br>${x.giri >= 1 ? `${x.giri} A/R al giorno` : '3 A/R a settimana'}</td><td>${barretta(x.lf, null, [0.55, 0.72])}</td>
+      <td class="num">${x.studiato ? segno(x.utile) : `${mln(x.utile * 0.7)} – ${mln(x.utile * 1.3)}`}</td><td>${x.studiato ? '<span class="badge b-ok">Studiata</span>' : '<span class="badge">Stima ±30%</span>'}</td>
+      <td class="azioni-riga">${x.studiato ? '' : `<button class="piccolo" data-az="studio" data-da="${x.da}" data-a="${x.a}">Studio · 15k</button>`}<button class="piccolo primario" data-az="apri-prop" data-da="${x.da}" data-a="${x.a}" data-mod="${x.mod}">Apri e programma</button></td></tr>`).join('')}
+  </tbody></table></div>
+  <p class="nota">Stima con un aereo della tua flotta ai prezzi di riferimento, a rotta avviata (servono circa 2 mesi). Il margine è sui soli voli: leasing, stipendi e sede sono a parte. Senza uno studio la domanda vera può essere il 30% più alta o più bassa.</p></div>
+  <div class="griglia g2 mt">
+    <div class="pannello"><h2>Commissiona una ricerca</h2>
+      <div class="form"><label class="pieno">Tipo<select id="rcTipo">${opzioni(Object.entries(D.RICERCHE).map(([k, x]) => [k, `${x.nome} · ${eur(x.costo)} · ${x.giorni} giorni`]), tipo)}</select></label>
+      ${tipo === 'domanda' ? `<label>Da<select id="rcDa">${opzioniAeroporti(ordina, G.basi[0])}</select></label><label>A<select id="rcA"><option value="">— scegli —</option>${opzioniAeroporti(ordina, '')}</select></label>` : ''}
+      ${tipo === 'area' ? `<label>Base<select id="rcBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), G.basi[0])}</select></label>` : ''}</div>
+      <p class="piccolo">${h(Rr.descr)}</p>
+      <div class="filtri"><button class="primario" data-az="ricerca" ${G.cassa < Rr.costo ? 'disabled' : ''}>Commissiona · ${eur(Rr.costo)}</button></div>
+      ${G.ricerche.length ? `<h3 class="mt">Ricerche</h3><ul class="ricerche">${G.ricerche.slice().reverse().map(r => `<li><b>${D.RICERCHE[r.tipo].nome}</b> ${r.tipo === 'domanda' ? `${r.da}–${r.a}` : r.tipo === 'area' ? r.base : ''} · ${r.fatta ? `<span class="badge b-ok">pronta</span>` : `<span class="badge b-info">pronta tra ${giorniA(r.fine)} giorni</span>`}
+        ${r.fatta && r.esito && r.esito.mesi ? `<div class="piccolo">${h(r.esito.testo)}</div>${miniMesi(r.esito.mesi)}<div class="piccolo muto">Clientela: Business ${pct(r.esito.quote.J)} · Premium ${pct(r.esito.quote.W)} · Economy ${pct(r.esito.quote.Y)} · turismo ${pct(r.esito.turismo)}</div>` : ''}
+        ${r.fatta && r.esito && r.esito.lista ? `<div class="piccolo">Studiate: ${r.esito.lista.join(', ')}</div>` : ''}</li>`).join('')}</ul>` : ''}
+    </div>
+    <div class="pannello"><h2>Mosse dei concorrenti</h2>${intel ? (mosse.length ? `<ul class="ricerche">${mosse.sort((x, y) => x.t - y.t).map(m => { const R = G.rivali.find(r => r.id === m.riv), [a, b] = m.k.split('-'), mia = !!G.rotte[m.k]; return `<li><span class="pallino" style="background:${R.colore}"></span><b>${h(R.nome)}</b> aprirà <b>${a}–${b}</b> verso il ${fmtGiorno(m.t)}${mia ? ' <span class="badge b-err">rotta tua</span>' : ''}${m.attacco ? '<br><span class="piccolo">Vuole attaccare una tua rotta piena: valuta prezzi o più voli prima che arrivi.</span>' : ''}</li>`; }).join('')}</ul>` : '<p class="muto">Nessuna mossa in vista.</p>') + `<p class="nota">Informazioni valide fino al ${fmtGiorno(G.intel)}.</p>`
+      : `<p class="muto">Non sai cosa stanno preparando. Con un’analisi della concorrenza vedi le loro nuove rotte 2–4 settimane prima che partano.</p><div class="filtri"><button data-az="ricerca-rapida" data-t="concorrenza">Analisi della concorrenza · ${eur(D.RICERCHE.concorrenza.costo)}</button></div>`}</div>
+  </div>`;
+};
+function miniMesi(m) {
+  const mx = Math.max(...m), nomi = 'GFMAMGLASOND';
+  return `<div class="mini-mesi" role="img" aria-label="Domanda mese per mese">${m.map((v, i) => `<span style="height:${Math.round(v / mx * 100)}%" data-tip="${nomi[i]}: ${num(v)} al giorno"><i>${nomi[i]}</i></span>`).join('')}</div>`;
+}
+// Borsa (pagina Finanze)
+function pannelloBorsa() {
+  const B = G.borsa, equo = SIM.valoreEquo(G);
+  if (!B.quotata) {
+    const v = SIM.valoreCompagnia(G), ok = v >= 25e6 && G.ora - G.inizio >= 60 * GIORNO;
+    return `<div class="pannello mt"><h2>Borsa</h2><p>Quotarti in borsa ti fa incassare denaro vendendo una parte della compagnia. Il prezzo del titolo seguirà utili, reputazione e fiducia del CdA.</p>
+      <p class="piccolo">Valutazione attuale stimata: <b>${mln(equo)}</b>. Requisiti: valore della compagnia di almeno 25 M€ (ora ${mln(v)}) e 60 giorni di storia.</p>
+      <div class="filtri"><select id="quotaIpo">${opzioni([[0.2, 'Vendi il 20%'], [0.3, 'Vendi il 30%'], [0.4, 'Vendi il 40%']], 0.3)}</select><button class="primario" data-az="ipo" ${ok ? '' : 'disabled'}>Quotati in borsa</button></div></div>`;
+  }
+  const cap = B.prezzo * B.azioni, quota = B.mie / B.azioni, s30 = B.storico.length > 30 ? B.storico.at(-31).p : B.storico[0].p, var30 = B.prezzo / s30 - 1;
+  return `<div class="pannello mt"><h2>Borsa</h2>
+    <div class="kpi"><div><small>Prezzo azione</small><b>${B.prezzo.toFixed(2)} €</b><span class="${var30 >= 0 ? 'pos' : 'neg'}">${var30 >= 0 ? '+' : ''}${(var30 * 100).toFixed(1)}% in 30 giorni</span></div>
+      <div><small>Capitalizzazione</small><b>${mln(cap)}</b><span>valore “equo” ${mln(equo)}</span></div>
+      <div><small>Tua quota</small><b>${pct(quota)}</b><span>${quota >= 0.51 ? 'controllo saldo' : 'attenzione al controllo'}</span></div>
+      <div><small>Dividendi pagati</small><b>${mln(B.dividendi)}</b><span>dalla quotazione</span></div></div>
+    ${graficoLinea(B.storico.slice(-180).map(x => ({ t: x.t, v: x.p })), v => v.toFixed(2) + ' €')}
+    <div class="filtri mt"><button data-az="aumento">Aumento di capitale del 10% (~${mln(B.azioni * 0.1 * B.prezzo * 0.95)})</button>
+      <input type="number" id="importoBorsa" min="0" step="100000" value="${Math.round(Math.max(1e5, cap * 0.01) / 1e5) * 1e5}" style="width:140px" aria-label="Importo">
+      <button data-az="dividendo">Paga dividendo</button><button data-az="riacquisto">Riacquista azioni</button></div>
+    <p class="nota">L’aumento di capitale porta cassa ma diluisce la tua quota (non puoi scendere sotto il 51%). Dividendi e riacquisti fanno salire il titolo e la fiducia del CdA.</p></div>`;
 }
 
 /* ---------- Uso semplice: consigli, missioni, semafori, rotazione guidata, impostazioni ---------- */
@@ -1226,6 +1384,25 @@ function aggiungiScalo(d) {
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  decidi: el => { const r = SIM.A.decidi(G, +el.dataset.i, !!el.dataset.si); if (esito(r)) { suono(el.dataset.si ? 'buona' : 'click'); dopoAzione(); } },
+  convoca: () => { G.direzione.ultimaStraordinaria = G.ora; SIM.convocaRiunione(G); gestisciNovita(); if (!riunioneAperta()) toast('Nessun dirigente ha proposte da fare in questo momento'); render(); },
+  progetto: el => { const P = D.PROGETTI[el.dataset.t]; conferma(`Avviare «${P.nome}»?`, `${P.effetto}. Pronto in ${P.giorni} giorni.`, 'Avvia', () => { if (esito(SIM.A.progetto(G, el.dataset.t))) render(); }); },
+  strategia: el => { const x = D.STRATEGIE[el.dataset.s]; conferma(`Passare a ${x.nome}?`, `${x.descr} Costo del cambio di immagine 300.000 €, reputazione −3. Potrai cambiare di nuovo tra 6 mesi.`, 'Cambia posizionamento', () => { if (esito(SIM.A.strategia(G, el.dataset.s))) render(); }); },
+  ricerca: () => { const tipo = $('#rcTipo').value, x = { tipo }; if (tipo === 'domanda') { x.da = $('#rcDa').value; x.a = $('#rcA').value; } if (tipo === 'area') x.base = $('#rcBase').value; if (esito(SIM.A.ricerca(G, x))) render(); },
+  'ricerca-rapida': el => { if (esito(SIM.A.ricerca(G, { tipo: el.dataset.t }))) render(); },
+  studio: el => { if (esito(SIM.A.ricerca(G, { tipo: 'domanda', da: el.dataset.da, a: el.dataset.a }))) { if (!$('#modale').hidden && $('#infoRotta')) infoRotta(); else render(); } },
+  'apri-prop': el => {
+    const { da, a, mod } = el.dataset;
+    if (!G.rotte[SIM.chiave(da, a)] && !esito(SIM.A.apriRotta(G, da, a))) return;
+    const k = SIM.km(da, a), adatti = flotta().filter(x => MOD[x.modello].autonomia >= k).sort((x, y) => (x.modello === mod ? 0 : 1) - (y.modello === mod ? 0 : 1) || SIM.mediaCiclo(x).ore - SIM.mediaCiclo(y).ore);
+    dopoAzione();
+    if (!adatti.length) return toast('Rotta aperta: nessun aereo della flotta arriva fin lì, comprane uno nel Mercato aerei', 'err');
+    apriGuida(adatti[0].id); UI.guida.base = da; UI.guida.tipo = k > 3500 && MOD[adatti[0].modello].lungo ? 'lungo' : 'navetta'; UI.guida.dest = [a]; disegnaGuida();
+  },
+  ipo: () => { const q = +$('#quotaIpo').value; conferma('Quotarsi in borsa?', `Vendi il ${Math.round(q * 100)}% della compagnia al mercato. Incassi subito, ma da ora il prezzo del titolo e il CdA giudicheranno ogni tua mossa.`, 'Quotati', () => { if (esito(SIM.A.quotazione(G, q))) render(); }); },
+  aumento: () => { if (esito(SIM.A.aumentoCapitale(G, 0.1))) render(); },
+  dividendo: () => { if (esito(SIM.A.dividendo(G, +$('#importoBorsa').value))) render(); },
+  riacquisto: () => { if (esito(SIM.A.riacquisto(G, +$('#importoBorsa').value))) render(); },
   consiglio: el => {
     const c = UI.consigli?.[+el.dataset.i], a = c?.azioni[+el.dataset.j]; if (!a) return;
     if (a.vai) { location.hash = '#/' + a.vai; return; }
@@ -1367,6 +1544,12 @@ function mostraTip(testo, x, y, durata) {
 document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset.az === 'autocheck') return AZ.autocheck(el);
+  if (el.dataset.bordo) { esito(SIM.A.bordo(G, el.dataset.c, el.dataset.bordo, +el.value)); render(); return; }
+  if (el.dataset.tar) { esito(SIM.A.tariffe(G, { [el.dataset.tar]: +el.value })); render(); return; }
+  if (el.dataset.tarSel) { esito(SIM.A.tariffe(G, { [el.dataset.tarSel]: el.dataset.tarSel === 'overbooking' ? +el.value : el.value })); render(); return; }
+  if (el.dataset.tarChk) { esito(SIM.A.tariffe(G, { [el.dataset.tarChk]: el.checked })); render(); return; }
+  if (el.id === 'rcTipo') { UI.rcTipo = el.value; render(); return; }
+  if (el.id === 'rottaBiglietto') { UI.rottaBiglietto = el.value; render(); return; }
   if (el.dataset.azChange === 'auto-equipaggi' || el.dataset.azChange === 'auto-ispezioni') { esito(SIM.A.impostaAuto(G, el.dataset.azChange.slice(5), el.checked)); return; }
   if (el.dataset.azChange === 'opz-pausa') { UI.pausaAuto = el.checked; salvaOpz(); return; }
   if (el.dataset.azChange === 'opz-suoni') { UI.suoni = el.checked; salvaOpz(); const b = $('#cSuoni'); if (b) b.textContent = UI.suoni ? '🔊' : '🔈'; return; }

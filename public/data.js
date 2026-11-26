@@ -183,6 +183,80 @@ const DATI = (() => {
   const RUOLI = { CMD: { nome: 'Comandanti', paga: 330, pilota: true }, FO: { nome: 'Primi ufficiali', paga: 190, pilota: true }, CC: { nome: 'Capi cabina', paga: 130 }, ADV: { nome: 'Assistenti di volo', paga: 95 } };
   const SERVIZIO = { base: { nome: 'Essenziale', costo: 0, rep: -6 }, standard: { nome: 'Standard', costo: 3, rep: 0 }, premium: { nome: 'Premium', costo: 8, rep: 8 } };
 
+  // ---------- Gestione aziendale ----------
+  // Posizionamento: quote = moltiplicatori della clientela per classe, attesa = qualità che i clienti si aspettano,
+  // tolleranza = quanto pesano i supplementi (bagaglio, posto), handling/sede = moltiplicatori di costo
+  const STRATEGIE = {
+    lowcost: { nome: 'Low cost', descr: 'Prezzi bassi, servizi a pagamento, aerei pieni. Pochi clienti business, che però non si aspettano molto.', quote: { J: 0.3, W: 0.6, Y: 1 }, domanda: 1.08, attesa: { J: -0.1, W: -0.06, Y: -0.04 }, tolleranza: 0.4, handling: 0.85, sede: 0.85, rep: -2 },
+    tradizionale: { nome: 'Tradizionale', descr: 'Compagnia di bandiera classica: un po’ di tutto, servizio standard.', quote: { J: 1, W: 1, Y: 1 }, domanda: 1, attesa: { J: 0, W: 0, Y: 0 }, tolleranza: 1, handling: 1, sede: 1, rep: 0 },
+    premium: { nome: 'Premium', descr: 'Clientela d’affari e di fascia alta: paga di più ma pretende un prodotto curato.', quote: { J: 1.6, W: 1.35, Y: 0.9 }, domanda: 0.95, attesa: { J: 0.06, W: 0.05, Y: 0.04 }, tolleranza: 1.5, handling: 1.05, sede: 1.15, rep: 3 },
+    regionale: { nome: 'Regionale', descr: 'Specialista delle tratte brevi: più passeggeri sotto i 900 km, meno sul lungo raggio.', quote: { J: 0.7, W: 0.8, Y: 1 }, domanda: 1, corto: 1.12, lungo: 0.85, attesa: { J: 0, W: 0, Y: 0 }, tolleranza: 0.8, handling: 0.9, sede: 0.95, rep: 1 }
+  };
+  // Prodotto di bordo: per ogni elemento i livelli possibili; val = gradimento per classe (0 = standard),
+  // costo € a passeggero, costoOra € a passeggero per ora di volo, ricavo € medi incassati a passeggero, durata = conta di più sui voli lunghi
+  const BORDO = {
+    pasto: { nome: 'Ristorazione', durata: true, livelli: [
+      { nome: 'Niente', val: { J: -0.2, W: -0.06, Y: -0.02 } },
+      { nome: 'A pagamento', ricavo: { J: 0, W: 1.5, Y: 2.5 }, val: { J: -0.15, W: -0.04, Y: -0.01 } },
+      { nome: 'Snack e bevande', costo: 2, val: { J: -0.08, W: 0, Y: 0.01 } },
+      { nome: 'Pasto caldo', costo: 4, costoOra: 3, val: { J: 0, W: 0.04, Y: 0.03 } },
+      { nome: 'Gourmet', costo: 10, costoOra: 9, val: { J: 0.1, W: 0.07, Y: 0.04 } }] },
+    sedile: { nome: 'Sedili', durata: true, livelli: [
+      { nome: 'Standard', val: { J: 0, W: 0, Y: 0 } },
+      { nome: 'Comfort', costoOra: 0.8, val: { J: 0.04, W: 0.03, Y: 0.03 } },
+      { nome: 'Lusso (letto in Business)', costoOra: 2.5, val: { J: 0.1, W: 0.06, Y: 0.05 } }] },
+    svago: { nome: 'Intrattenimento', durata: true, livelli: [
+      { nome: 'Niente', val: { J: -0.05, W: -0.03, Y: -0.01 } },
+      { nome: 'Film sul telefono', costoOra: 0.3, val: { J: 0, W: 0, Y: 0 } },
+      { nome: 'Schermi personali', costoOra: 1, val: { J: 0.05, W: 0.04, Y: 0.03 } }] },
+    wifi: { nome: 'Wi‑Fi', richiede: 'wifi', livelli: [
+      { nome: 'Niente', val: { J: 0, W: 0, Y: 0 } },
+      { nome: 'A pagamento', ricavo: { J: 0, W: 1.2, Y: 0.8 }, val: { J: 0.01, W: 0.01, Y: 0 } },
+      { nome: 'Gratis', costo: 2.5, val: { J: 0.04, W: 0.03, Y: 0.02 } }] },
+    lounge: { nome: 'Lounge in aeroporto', classi: ['J', 'W'], livelli: [
+      { nome: 'Nessuna', val: { J: -0.06, W: -0.01, Y: 0 } },
+      { nome: 'Lounge di un partner', costo: 16, val: { J: 0, W: 0.02, Y: 0 } },
+      { nome: 'Lounge propria (2.500 €/giorno per base)', costo: 6, fisso: 2500, val: { J: 0.05, W: 0.04, Y: 0 } }] }
+  };
+  const PRESET_BORDO = {
+    base: { J: { pasto: 2, sedile: 0, svago: 1, wifi: 0, lounge: 0 }, W: { pasto: 1, sedile: 0, svago: 1, wifi: 0, lounge: 0 }, Y: { pasto: 1, sedile: 0, svago: 0, wifi: 0, lounge: 0 } },
+    standard: { J: { pasto: 3, sedile: 0, svago: 1, wifi: 0, lounge: 1 }, W: { pasto: 2, sedile: 0, svago: 1, wifi: 0, lounge: 0 }, Y: { pasto: 2, sedile: 0, svago: 1, wifi: 0, lounge: 0 } },
+    premium: { J: { pasto: 4, sedile: 1, svago: 2, wifi: 0, lounge: 1 }, W: { pasto: 3, sedile: 1, svago: 2, wifi: 0, lounge: 1 }, Y: { pasto: 3, sedile: 0, svago: 1, wifi: 0, lounge: 0 } }
+  };
+  const DINAMICO = {
+    fisso: { nome: 'Prezzo fisso', rialzo: 0, perdita: 0 },
+    prudente: { nome: 'Prudente', rialzo: 0.08, perdita: 0.02 },
+    bilanciato: { nome: 'Bilanciato', rialzo: 0.16, perdita: 0.05, richiede: 'rm' },
+    aggressivo: { nome: 'Aggressivo', rialzo: 0.26, perdita: 0.12, richiede: 'rm' }
+  };
+  const RICERCHE = {
+    domanda: { nome: 'Studio di domanda', costo: 15000, giorni: 5, descr: 'Domanda vera, stagionalità e tipo di clientela tra due città. Le stime su quella coppia diventano precise per un anno.' },
+    area: { nome: 'Indagine di mercato su una base', costo: 45000, giorni: 10, descr: 'Studia le 12 destinazioni più promettenti da una base: tutte diventano stime precise.' },
+    concorrenza: { nome: 'Analisi della concorrenza', costo: 40000, giorni: 7, descr: 'Per 60 giorni vedi in anticipo le mosse dei concorrenti: nuove rotte e attacchi alle tue.' },
+    sondaggio: { nome: 'Sondaggio passeggeri', costo: 20000, giorni: 7, descr: 'Cosa pensano i passeggeri del prodotto di bordo, classe per classe, e cosa migliorerebbero.' }
+  };
+  const DIRIGENTI = {
+    cfo: { ruolo: 'CFO', area: 'Finanza', nomi: ['Giulia Ferraris', 'Marco Bellandi', 'Elena Russo'], motto: 'Prudente: guarda prima la cassa' },
+    comm: { ruolo: 'Direttore commerciale', area: 'Rotte e prezzi', nomi: ['Luca Moretti', 'Sara Conti', 'Davide Greco'], motto: 'Ambizioso: vuole crescere' },
+    coo: { ruolo: 'COO', area: 'Operazioni', nomi: ['Paolo Lombardi', 'Chiara Rinaldi', 'Stefano Gallo'], motto: 'Pignolo: puntualità prima di tutto' },
+    cmo: { ruolo: 'CMO', area: 'Marketing', nomi: ['Federica Marino', 'Andrea Costa', 'Valentina Bruno'], motto: 'Creativo: il marchio è tutto' },
+    cto: { ruolo: 'CTO', area: 'Tecnologia', nomi: ['Simone Ricci', 'Laura Fontana', 'Matteo Villa'], motto: 'Innovatore: automatizza tutto' }
+  };
+  // Progetti a effetto ritardato proposti in riunione
+  const PROGETTI = {
+    rm: { nome: 'Sistema di revenue management', ruolo: 'cto', costo: 900000, giorni: 45, effetto: 'Prezzi dinamici bilanciati e aggressivi, +3% di ricavi per biglietto' },
+    app: { nome: 'App e check-in online', ruolo: 'cto', costo: 500000, giorni: 30, effetto: 'Handling −15%, +20% di vendite di servizi extra, reputazione +2' },
+    wifi: { nome: 'Wi‑Fi satellitare sulla flotta', ruolo: 'cto', costo: 0, perAereo: 80000, giorni: 20, effetto: 'Sblocca il Wi‑Fi a bordo (a pagamento o gratis); 150 € al giorno per aereo' },
+    predittiva: { nome: 'Manutenzione predittiva', ruolo: 'cto', costo: 400000, giorni: 30, effetto: 'Guasti −40%' },
+    sito: { nome: 'Nuovo sito di prenotazione', ruolo: 'cto', costo: 250000, giorni: 21, effetto: 'Più vendite dirette: domanda +3% su tutte le rotte' },
+    puntualita: { nome: 'Programma puntualità', ruolo: 'coo', costo: 150000, giorni: 30, effetto: 'Ritardi −25%' },
+    hangar: { nome: 'Hangar di manutenzione', ruolo: 'coo', costo: 2000000, giorni: 60, effetto: 'Ispezioni −30% di costo' },
+    fedelta: { nome: 'Programma fedeltà', ruolo: 'cmo', costo: 400000, giorni: 30, quotidiano: 5000, effetto: 'Clienti Business e Premium +12%, reputazione +2; 5.000 € al giorno' },
+    rebranding: { nome: 'Nuova immagine del marchio', ruolo: 'cmo', costo: 600000, giorni: 30, effetto: 'Reputazione +8 a lavori finiti' },
+    sponsor: { nome: 'Sponsorizzazione sportiva', ruolo: 'cmo', costo: 250000, giorni: 7, effetto: 'Reputazione +4' },
+    tagli: { nome: 'Piano di riduzione costi', ruolo: 'cfo', costo: 0, giorni: 14, effetto: 'Costi di sede −15% per 6 mesi, morale −8' }
+  };
+
   // Concorrenti (nomi di fantasia). prezzo = moltiplicatore della tariffa di riferimento
   const RIVALI = [
     { id: 'cex', nome: 'Cielo Express', colore: '#8a5cf6', hub: 'FCO', rep: 55, prezzo: 1.0, rotte: { 'FCO-LIN': 6, 'CTA-FCO': 4, 'FCO-PMO': 4, 'CDG-FCO': 3, 'FCO-LHR': 3, 'BRI-FCO': 2, 'CAG-FCO': 2, 'FCO-VCE': 2, 'FCO-TRN': 2, 'BCN-FCO': 2 } },
@@ -252,6 +326,6 @@ const DATI = (() => {
     ['continenti', 'Giro del mondo', 'Vola in 5 continenti']
   ];
 
-  return { AEROPORTI, PAESI, MODELLI, CLASSI, HUB, MARKETING, RUOLI, SERVIZIO, RIVALI, SCENARI, TRAGUARDI };
+  return { AEROPORTI, PAESI, MODELLI, CLASSI, HUB, MARKETING, RUOLI, SERVIZIO, STRATEGIE, BORDO, PRESET_BORDO, DINAMICO, RICERCHE, DIRIGENTI, PROGETTI, RIVALI, SCENARI, TRAGUARDI };
 })();
 if (typeof module !== 'undefined') module.exports = DATI;
