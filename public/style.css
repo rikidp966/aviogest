@@ -693,3 +693,4 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
 .banner-riunione.trattativa b { color: #f0b04a; }
 .form label.interruttore { display: grid; grid-template-columns: auto 1fr; flex-direction: row; text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--f-testo); color: var(--testo); }
 .form label.interruttore small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.grafico svg { overflow: hidden; }
