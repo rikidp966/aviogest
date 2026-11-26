@@ -187,10 +187,10 @@ const DATI = (() => {
   // Posizionamento: quote = moltiplicatori della clientela per classe, attesa = qualità che i clienti si aspettano,
   // tolleranza = quanto pesano i supplementi (bagaglio, posto), handling/sede = moltiplicatori di costo
   const STRATEGIE = {
-    lowcost: { nome: 'Low cost', descr: 'Prezzi bassi, servizi a pagamento, aerei pieni. Pochi clienti business, che però non si aspettano molto.', quote: { J: 0.3, W: 0.6, Y: 1 }, domanda: 1.08, attesa: { J: -0.1, W: -0.06, Y: -0.04 }, tolleranza: 0.4, handling: 0.85, sede: 0.85, rep: -2 },
+    lowcost: { nome: 'Low cost', descr: 'Prezzi bassi, servizi a pagamento, aerei pieni: clienti molto attenti al prezzo. Pochi clienti business, che però non si aspettano molto.', quote: { J: 0.3, W: 0.6, Y: 1 }, domanda: 1.08, attesa: { J: -0.1, W: -0.06, Y: -0.04 }, tolleranza: 0.4, elasticita: 1.25, handling: 0.85, sede: 0.85, rep: -2 },
     tradizionale: { nome: 'Tradizionale', descr: 'Compagnia di bandiera classica: un po’ di tutto, servizio standard.', quote: { J: 1, W: 1, Y: 1 }, domanda: 1, attesa: { J: 0, W: 0, Y: 0 }, tolleranza: 1, handling: 1, sede: 1, rep: 0 },
-    premium: { nome: 'Premium', descr: 'Clientela d’affari e di fascia alta: paga di più ma pretende un prodotto curato.', quote: { J: 1.6, W: 1.35, Y: 0.9 }, domanda: 0.95, attesa: { J: 0.06, W: 0.05, Y: 0.04 }, tolleranza: 1.5, handling: 1.05, sede: 1.15, rep: 3 },
-    regionale: { nome: 'Regionale', descr: 'Specialista delle tratte brevi: più passeggeri sotto i 900 km, meno sul lungo raggio.', quote: { J: 0.7, W: 0.8, Y: 1 }, domanda: 1, corto: 1.12, lungo: 0.85, attesa: { J: 0, W: 0, Y: 0 }, tolleranza: 0.8, handling: 0.9, sede: 0.95, rep: 1 }
+    premium: { nome: 'Premium', descr: 'Clientela d’affari e di fascia alta: accetta prezzi più alti ma pretende un prodotto curato.', quote: { J: 1.6, W: 1.35, Y: 0.9 }, domanda: 0.95, attesa: { J: 0.04, W: 0.03, Y: 0.02 }, tolleranza: 1.5, elasticita: 0.75, handling: 1.05, sede: 1.15, rep: 3 },
+    regionale: { nome: 'Regionale', descr: 'Specialista delle tratte brevi: più passeggeri sotto i 900 km, meno sul lungo raggio.', quote: { J: 0.7, W: 0.8, Y: 1 }, domanda: 1, corto: 1.12, lungo: 0.85, attesa: { J: 0, W: 0, Y: 0 }, tolleranza: 0.8, elasticita: 1.05, handling: 0.9, sede: 0.95, rep: 1 }
   };
   // Prodotto di bordo: per ogni elemento i livelli possibili; val = gradimento per classe (0 = standard),
   // costo € a passeggero, costoOra € a passeggero per ora di volo, ricavo € medi incassati a passeggero, durata = conta di più sui voli lunghi
