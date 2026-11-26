@@ -11,11 +11,11 @@ const ICONE = {
   azienda: '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2"/></svg>'
 };
 const AREE = [
-  { id: 'oggi', nome: 'Oggi', pagine: [['panoramica', 'Panoramica'], ['voli', 'Voli'], ['guida', 'Guida']] },
+  { id: 'oggi', nome: 'Oggi', pagine: [['panoramica', 'Panoramica'], ['voli', 'Voli'], ['giornale', 'Giornale'], ['guida', 'Guida']] },
   { id: 'rete', nome: 'Rete', pagine: [['programmazione', 'Programmazione'], ['rotte', 'Rotte e prezzi'], ['hub', 'Hub'], ['aeroporti', 'Aeroporti e slot']], extra: ['rotta', 'aeroporto'] },
-  { id: 'commerciale', nome: 'Commerciale', pagine: [['prodotto', 'Bordo e tariffe'], ['mercati', 'Mercati e ricerche'], ['marketing', 'Marketing'], ['ricavi', 'Ricavi'], ['concorrenza', 'Concorrenza']] },
+  { id: 'commerciale', nome: 'Commerciale', pagine: [['prodotto', 'Bordo e tariffe'], ['mercati', 'Mercati e ricerche'], ['accordi', 'Accordi'], ['marketing', 'Marketing'], ['ricavi', 'Ricavi'], ['concorrenza', 'Concorrenza']] },
   { id: 'flotta', nome: 'Flotta', pagine: [['flotta', 'Aerei'], ['mercato', 'Mercato aerei'], ['personale', 'Equipaggi']], extra: ['aereo'] },
-  { id: 'azienda', nome: 'Azienda', pagine: [['direzione', 'Direzione'], ['finanze', 'Finanze e borsa'], ['obiettivi', 'Obiettivi'], ['impostazioni', 'Impostazioni']] }
+  { id: 'azienda', nome: 'Azienda', pagine: [['direzione', 'Direzione'], ['finanze', 'Finanze e borsa'], ['sostenibilita', 'Sostenibilità'], ['obiettivi', 'Obiettivi'], ['impostazioni', 'Impostazioni']] }
 ];
 const areaDi = v => AREE.find(a => a.pagine.some(p => p[0] === v) || (a.extra || []).includes(v)) || AREE[0];
 function badgeArea(id) {
@@ -114,7 +114,7 @@ function apriAeroporto(i) {
       ${riv.length ? `<p class="piccolo">Concorrenti: ${riv.map(r => `<span class="pallino" style="background:${r.colore}"></span>${h(r.nome)}${r.hub === i ? ' (hub)' : ''}`).join(' · ')}</p>` : ''}
       ${dalleBasi.length ? `<h3>Collegala a una tua base</h3><ul class="elenco">${dalleBasi.map(x => `<li><b>${x.b}–${i}</b> <span class="muto piccolo">${num(x.k)} km</span><span class="spazio"></span>${x.studiato ? '' : `<button class="piccolo" data-az="studio" data-da="${x.b}" data-a="${i}">Studio · 15k</button>`}${x.aperta ? linkRotta(SIM.chiave(x.b, i), 'Vedi rotta') : `<button class="piccolo primario" data-az="apri-prop" data-da="${x.b}" data-a="${i}" data-mod="">Apri e programma</button>`}</li>`).join('')}</ul>` : ''}
       ${cand.length ? `<h3>Destinazioni promettenti da qui</h3><ul class="elenco">${cand.map(x => `<li><b>${x.da}–${x.a}</b> <span class="muto piccolo">${h(citta(x.a))} · ${num(x.km)} km · ${x.studiato ? mln(x.utile) : `${mln(x.utile * 0.7)}–${mln(x.utile * 1.3)}`} al giorno</span><span class="spazio"></span><button class="piccolo primario" data-az="apri-prop" data-da="${x.da}" data-a="${x.a}" data-mod="${x.mod}">Apri e programma</button></li>`).join('')}</ul>` : ''}`,
-    piede: `<button data-az="chiudi">Chiudi</button>${base ? (hub ? '' : `<button data-az="hub-qui" data-i="${i}">Trasforma in hub · ${mln(D.HUB.costo)}</button>`) : `<button data-az="base-qui" data-i="${i}">Apri una base · ${mln(costoBase)}</button>`}`
+    piede: `<button data-az="chiudi">Chiudi</button><button data-az="chiedi-offerta" data-i="${i}">Chiedi un’offerta di accordo</button>${base ? (hub ? '' : `<button data-az="hub-qui" data-i="${i}">Trasforma in hub · ${mln(D.HUB.costo)}</button>`) : `<button data-az="base-qui" data-i="${i}">Apri una base · ${mln(costoBase)}</button>`}`
   });
 }
 

@@ -422,6 +422,7 @@ const SIM = (() => {
     const pax = mercato * quota * clamp((ref / pYe) ** (1.5 * (Sg ? Sg.elasticita || 1 : 1)), 0.15, 1.8) * maturita * (1 + 0.3 * sp.tot);
     const quote = quoteClassi(da, a);
     if (Sg || M.fedelta) { const f = M.fedelta ? 1.12 : 1; quote.J *= (Sg ? Sg.quote.J : 1) * f; quote.W *= (Sg ? Sg.quote.W : 1) * f; quote.Y = Math.max(0.05, 1 - quote.J - quote.W); }
+    if (G.saf) { quote.J *= 1 + G.saf * 0.3; quote.W *= 1 + G.saf * 0.2; quote.Y = Math.max(0.05, 1 - quote.J - quote.W); }
     if (sp.bus) { quote.J *= 1 + 1.5 * sp.bus; quote.W *= 1 + 1.5 * sp.bus; quote.Y = 1 - quote.J - quote.W; }
     return { mercato, quota, pax, ref, km: k, rivali, altri: altri / tot, maturita, quote, spinta: sp, val, studiato: G.studi ? studiato(G, da, a) : true };
   }
@@ -622,8 +623,9 @@ const SIM = (() => {
     const paxC = { J: Math.min(ae.cab.J, v.v.J + v.t.J), W: Math.min(ae.cab.W, v.v.W + v.t.W), Y: 0 }; paxC.Y = Math.max(0, pax - paxC.J - paxC.W);
     const bordo = contoBordo(G, paxC, h);
     const c = {
-      carburante: Math.round(m.consumo * h * (G.copertura ? G.copertura.prezzo : G.carburante)),
-      tasse: Math.round(pax * AP[v.da].tassa + Math.max(np * 2, m.peso * 8)),
+      carburante: Math.round(m.consumo * h * (G.copertura ? G.copertura.prezzo : G.carburante) * (1 + 1.5 * (G.saf || 0))),
+      co2: Math.round(m.consumo * h * 3.16 / 1000 * (G.co2 || 0) * QUOTA_CO2(v.da, v.a) * (1 - 0.8 * (G.saf || 0))),
+      tasse: Math.round(pax * AP[v.da].tassa * (1 - scontoAeroporto(G, v.da)) + Math.max(np * 2, m.peso * 8)),
       handling: Math.round((250 + pax * 5) * Sg.handling * (M.app ? 0.85 : 1)),
       navigazione: Math.round(k * 0.6 * Math.sqrt(m.peso / 70)),
       manutenzione: Math.round(m.manut * h * (1 + ae.eta * 0.03)),
@@ -636,6 +638,9 @@ const SIM = (() => {
     let costi = Object.values(c).reduce((s, x) => s + x, 0); const ricaviC = {}; let ricavi = 0;
     for (const x of CL) { ricaviC[x] = Math.round(v.inc[x]); ricavi += ricaviC[x]; }
     ricavi += bordo.extra; G.oggi.ricaviExtra = (G.oggi.ricaviExtra || 0) + bordo.extra;
+    G.oggi.co2 = (G.oggi.co2 || 0) + m.consumo * h * 3.16 / 1000 * (1 - 0.8 * (G.saf || 0));
+    const contr = contributoRotta(G, chiave(v.da, v.a)); if (contr) { ricavi += contr; G.oggi.contributi = (G.oggi.contributi || 0) + contr; const acc = G.accordi.find(x => x.tipo === 'regione' && x.k === chiave(v.da, v.a)); if (acc) acc.incassato += contr; }
+    { const sc = scontoAeroporto(G, v.da); if (sc) { const acc = G.accordi.find(x => x.tipo === 'aeroporto' && x.iata === v.da); if (acc) acc.risparmiato += Math.round(pax * AP[v.da].tassa * sc); } }
     if (jvSu(G, chiave(v.da, v.a))) { c.alleanze = Math.round(ricavi * QUOTA_JV); costi += c.alleanze; }
     v.stato = 'arrivato'; ae.ore += h; ae.cicli++; ae.oreDaCheck += h; ae.inVolo = null;
     G.cassa += ricavi - costi;
@@ -683,6 +688,7 @@ const SIM = (() => {
       if (ae.stato === 'guasto' && G.ora >= ae.fino) { ae.stato = 'attivo'; notizia(G, `${ae.marche} è di nuovo operativo.`, 'buona'); }
       if (ae.stato === 'consegna' && G.ora >= ae.fino) {
         ae.stato = 'attivo'; ae.pos = ae.prog.giorni[indiceCiclo(ae.prog, mezzanotte(G.ora))].scali[0]; G._roster = null;
+        if (ae.saldo) { G.cassa -= ae.saldo; notizia(G, `Pagato il saldo di ${eur(ae.saldo)} per ${ae.marche}.`, 'info'); delete ae.saldo; }
         notizia(G, `Consegnato ${MOD[ae.modello].nome} ${ae.marche} a ${ae.base} (${ae.cab.J}J · ${ae.cab.W}W · ${ae.cab.Y}Y). Assegnagli una rotazione!`, 'buona', true);
         rigeneraAereo(G, ae); controllaTraguardi(G);
       }
@@ -761,16 +767,16 @@ const SIM = (() => {
     for (const d of G.debiti) { const r = Math.min(d.capitale, d.rata); d.capitale -= r; G.cassa -= r; }
     G.debiti = G.debiti.filter(d => d.capitale > 1);
     const costi = Object.values(o.costi).reduce((s, x) => s + x, 0);
-    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, extra: Math.round(o.ricaviExtra || 0), negati: o.negati || 0, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
+    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, extra: Math.round(o.ricaviExtra || 0), co2: Math.round(o.co2 || 0), contributi: Math.round(o.contributi || 0), negati: o.negati || 0, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
     const rec = G.storico.at(-1); G.stat.utile += rec.utile;
     const vecchio = G.storico[G.storico.length - 61]; if (vecchio) { delete vecchio.rotte; delete vecchio.aerei; }
     if (G.storico.length > 1200) G.storico.shift();
     G.giorniUtile = rec.utile > 0 ? G.giorniUtile + 1 : 0;
-    for (const ae of G.aerei) if (ae.modo === 'proprieta') ae.valore *= 1 - 0.055 / 365;
+    for (const ae of G.aerei) if (ae.modo === 'proprieta') ae.valore *= 1 - (0.055 + (superato(G, ae.modello) ? 0.04 : 0)) / 365;
     const ult = G.storico.slice(-7), voli = ult.reduce((s, x) => s + x.voli, 0), canc = ult.reduce((s, x) => s + x.canc, 0);
     if (voli + canc > 0) {
       const punt = ult.reduce((s, x) => s + x.puntuali, 0) / Math.max(1, voli);
-      const target = clamp(50 + (punt - 0.8) * 160 - canc / (voli + canc) * 250 + (G.bordo ? analisiProdotto(G).rep : D.SERVIZIO[G.servizio].rep) + (G.morale - 50) * 0.1, 5, 95);
+      const target = clamp(50 + (punt - 0.8) * 160 - canc / (voli + canc) * 250 + (G.bordo ? analisiProdotto(G).rep : D.SERVIZIO[G.servizio].rep) + Math.min(5, (G.saf || 0) * 12) + (G.morale - 50) * 0.1, 5, 95);
       G.reputazione = clamp(G.reputazione + (target - G.reputazione) * 0.06, 0, 100);
     }
     const cop = copertura(G);
@@ -780,7 +786,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
-    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G);
+    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G); giornoEspansione(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -892,7 +898,7 @@ const SIM = (() => {
   const debitoTot = G => G.debiti.reduce((s, d) => s + d.capitale, 0);
   function valoreCompagnia(G) {
     let v = G.cassa - debitoTot(G);
-    for (const ae of G.aerei) if (ae.modo === 'proprieta' && ae.stato !== 'venduto') v += ae.valore;
+    for (const ae of G.aerei) if (ae.modo === 'proprieta' && ae.stato !== 'venduto') v += ae.valore - (ae.saldo || 0);
     for (const [i, n] of Object.entries(G.slot)) v += n * AP[i].slotPrezzo * 0.7;
     return v;
   }
@@ -1145,6 +1151,7 @@ const SIM = (() => {
     G.cda ||= { fiducia: 60, semestre: null, storico: [] };
     G.borsa ||= { quotata: false };
     initRivali(G);
+    G.co2 ??= 70; G.saf ??= 0; G.accordi ||= []; G.offerte ||= []; G.giornali ||= []; G.bilanci ||= []; G.stagione ||= stagioneDi(G.ora); G.modelliUsciti ||= Object.keys(MOD).filter(k => disponibile(G, k));
     if (!G.cda.semestre) nuovoSemestre(G);
   }
   const STR = G => D.STRATEGIE[G.strategia || 'tradizionale'];
@@ -1216,7 +1223,7 @@ const SIM = (() => {
       if (rnd() < 0.002) { const shock = rnd() < 0.5 ? -0.07 : 0.05; v += shock; notizia(G, shock < 0 ? `Rallentamento economico in ${c}: meno viaggiatori nei prossimi mesi.` : `Economia in forte crescita in ${c}: la domanda di voli aumenta.`, shock < 0 ? 'cattiva' : 'buona', true); }
       G.economia[c] = clamp(v, 0.8, 1.15);
     }
-    if (giornoSett(G.ora) === 0) { G.serie.push({ t: G.ora, carb: G.carburante, econ: { ...G.economia } }); if (G.serie.length > 104) G.serie.shift(); }
+    if (giornoSett(G.ora) === 0) { G.serie.push({ t: G.ora, carb: G.carburante, co2: G.co2, econ: { ...G.economia } }); if (G.serie.length > 104) G.serie.shift(); }
   }
 
   // ---------- Ricerche di mercato ----------
@@ -1256,10 +1263,10 @@ const SIM = (() => {
   // stima dei costi di un volo (come all'arrivo, senza ritardi)
   function costoVoloStimato(G, mod, k, pax) {
     const m = MOD[mod], h = durata(k, mod) / 60, np = somma(cabinaStandard(mod));
-    return m.consumo * h * G.carburante + pax * 20 + Math.max(np * 2, m.peso * 8) + 250 + pax * 5 + k * 0.6 * Math.sqrt(m.peso / 70) + m.manut * h + pax * 4 * Math.max(1, h / 2);
+    return m.consumo * h * G.carburante + m.consumo * h * 3.16 / 1000 * (G.co2 || 0) * 0.4 + pax * 20 + Math.max(np * 2, m.peso * 8) + 250 + pax * 5 + k * 0.6 * Math.sqrt(m.peso / 70) + m.manut * h + pax * 4 * Math.max(1, h / 2);
   }
   function candidati(G, base, n = 5, escludiAperte = true) {
-    const modelli = [...new Set(flottaAttiva(G).map(a => a.modello))];
+    const modelli = [...new Set(flottaAttiva(G).filter(a => a.stato !== 'consegna').map(a => a.modello))];
     if (!modelli.length) modelli.push('A320');
     const out = [], domani = giornoDopo(mezzanotte(G.ora));
     for (const a of Object.keys(AP)) {
@@ -1685,6 +1692,163 @@ const SIM = (() => {
   }
   function costoAlleanze(G) { let c = 0; for (const a of Object.values(G.alleanze || {})) c += LIVELLI_ALLEANZA[a.livello].quotidiano; return c; }
 
+  /* ---------- Ordini di aerei e modelli nuovi nel tempo ---------- */
+  const tsData = (G, d) => d ? Date.UTC(d[0], d[1] - 1, 1, 0) - (G.fuso ?? FUSO) * ORA : 0;
+  const disponibileDal = (G, mod) => tsData(G, MOD[mod].dal);
+  const annunciato = (G, mod) => !MOD[mod].dal || G.ora >= disponibileDal(G, mod) - 3 * 365 * GIORNO;
+  const disponibile = (G, mod) => !MOD[mod].dal || G.ora >= disponibileDal(G, mod);
+  // un modello è "superato" quando esce il suo successore: perde valore più in fretta
+  const superato = (G, mod) => Object.entries(MOD).some(([k, m]) => m.sostituisce === mod && disponibile(G, k));
+  const SCONTO_ATTESA = { 1: 0, 12: 0.08, 24: 0.15 };
+  function controllaModelli(G) {
+    G.modelliUsciti ||= Object.keys(MOD).filter(k => disponibile(G, k));
+    for (const k of Object.keys(MOD)) if (!G.modelliUsciti.includes(k) && disponibile(G, k)) {
+      G.modelliUsciti.push(k); const m = MOD[k], v = m.sostituisce && MOD[m.sostituisce];
+      notizia(G, `Entra in servizio il nuovo ${m.nome}${v ? `: consuma il ${Math.round((1 - m.consumo / m.spazio / (v.consumo / v.spazio)) * 100)}% in meno a posto del ${v.nome}, che da oggi vale meno sul mercato` : ''}.`, 'info', true);
+    }
+  }
+  function annullaOrdine(G, id) {
+    const ae = G.aerei.find(a => a.id === id); if (!ae || ae.stato !== 'consegna') return err('Ordine non trovato');
+    const perso = ae.acconto || 0;
+    G.aerei = G.aerei.filter(a => a !== ae); G._roster = null;
+    notizia(G, `Ordine del ${MOD[ae.modello].nome} ${ae.marche} annullato${perso ? `: l’acconto di ${eur(perso)} è perso` : ''}.`, 'info');
+    return ok('Ordine annullato');
+  }
+
+  /* ---------- Accordi con aeroporti e regioni ---------- */
+  const NOMI_REGIONI = ['Regione', 'Ente del turismo', 'Camera di commercio', 'Provincia'];
+  const scontoAeroporto = (G, iata) => { let s = 0; for (const a of G.accordi || []) if (a.tipo === 'aeroporto' && a.iata === iata) s = Math.max(s, a.sconto); return s; };
+  const contributoRotta = (G, k) => { const a = (G.accordi || []).find(x => x.tipo === 'regione' && x.k === k); return a ? a.contributo : 0; };
+  const voliSettDa = (G, iata) => flottaAttiva(G).filter(a => a.stato !== 'consegna').reduce((s, ae) => s + SIM_tratte(ae).filter(l => l.da === iata).length, 0);
+  const voliSettRotta = (G, k) => flottaAttiva(G).filter(a => a.stato !== 'consegna').reduce((s, ae) => s + SIM_tratte(ae).filter(l => chiave(l.da, l.a) === k).length, 0);
+  const SIM_tratte = ae => normalizza(ae.prog).giorni.flatMap(g => legsGiorno(ae, g, ae.prog.turn));
+  function offertaAeroporto(G, iata) {
+    const A = AP[iata], grande = A.slot || A.pop > 4000, base = G.basi.includes(iata);
+    const sconto = grande ? 0.1 + rnd() * 0.1 : 0.35 + rnd() * 0.3, minVoli = grande ? 21 + Math.floor(rnd() * 3) * 7 : 7 + Math.floor(rnd() * 2) * 7;
+    const anni = 2 + Math.floor(rnd() * 2), penale = Math.round((grande ? 600000 : 250000) / 1e4) * 1e4;
+    return { id: 'o' + (G.seq++), tipo: 'aeroporto', iata, nome: `Aeroporto di ${A.citta}`, sconto: Math.round(sconto * 100) / 100, minVoli, anni, penale, scade: G.ora + 30 * GIORNO,
+      testo: `${Math.round(sconto * 100)}% di sconto sulle tasse per tutti i tuoi passeggeri in partenza da ${iata} per ${anni} anni, se garantisci almeno ${minVoli} partenze a settimana${base ? '' : ' (anche senza base lì)'}.` };
+  }
+  function offertaRegione(G, iata) {
+    const A = AP[iata], b = G.basi.filter(x => x !== iata).sort((x, y) => km(x, iata) - km(y, iata))[0]; if (!b) return null;
+    const d = km(b, iata); if (d < 150 || flottaAttiva(G).every(ae => MOD[ae.modello].autonomia < d)) return null;
+    const k = chiave(b, iata), ref = prezzoRif(d), contributo = Math.round((1500 + rnd() * 3000) * (A.isola ? 1.4 : 1) / 100) * 100, minVoli = 7 + Math.floor(rnd() * 2) * 7;
+    const prezzoMax = Math.round(ref * (1.05 + rnd() * 0.15)), anni = 2;
+    const ente = `${NOMI_REGIONI[Math.floor(rnd() * NOMI_REGIONI.length)]} di ${A.citta}`;
+    return { id: 'o' + (G.seq++), tipo: 'regione', iata, k, nome: ente, contributo, minVoli, prezzoMax, anni, penale: 300000, scade: G.ora + 30 * GIORNO,
+      testo: `${A.isola ? 'Continuità territoriale' : 'Sviluppo turistico'}: ${eur(contributo)} per ogni volo ${b}–${iata} per ${anni} anni, con almeno ${minVoli} voli a settimana (andata e ritorno contano entrambi) e un prezzo Economy non oltre ${eur(prezzoMax)}.` };
+  }
+  function nuoveOfferte(G) {
+    G.offerte = (G.offerte || []).filter(o => o.scade > G.ora);
+    if (G.offerte.length >= 4) return;
+    const vicini = Object.keys(AP).filter(i => !G.basi.includes(i) && G.basi.some(b => km(b, i) < 3000) && !(G.accordi || []).some(a => a.iata === i));
+    if (!vicini.length) return;
+    const pick = a => a[Math.floor(rnd() * a.length)];
+    const o1 = offertaAeroporto(G, pick(vicini)); G.offerte.push(o1);
+    const tur = vicini.filter(i => AP[i].tur > 0.45 || AP[i].isola || AP[i].pop < 1500);
+    const o2 = tur.length && offertaRegione(G, pick(tur)); if (o2) G.offerte.push(o2);
+    notizia(G, `Nuove proposte di accordo: ${o1.nome}${o2 ? ` e ${o2.nome}` : ''} (Commerciale › Accordi).`, 'info');
+  }
+  function chiediOfferta(G, iata) {
+    G.richieste ||= {};
+    if (G.richieste[iata] && G.ora - G.richieste[iata] < 60 * GIORNO) return err('Hai già chiesto un’offerta a questo aeroporto da poco');
+    G.richieste[iata] = G.ora; G.offerte ||= [];
+    const l = [offertaAeroporto(G, iata)], r = (AP[iata].tur > 0.45 || AP[iata].isola || AP[iata].pop < 1500) && !G.basi.includes(iata) ? offertaRegione(G, iata) : null; if (r) l.push(r);
+    G.offerte.push(...l); return ok(`${l.length === 1 ? 'Arrivata un’offerta' : 'Arrivate due offerte'}: le trovi in Commerciale › Accordi`);
+  }
+  function accettaOfferta(G, id) {
+    const o = (G.offerte || []).find(x => x.id === id); if (!o) return err('Offerta scaduta');
+    G.offerte = G.offerte.filter(x => x !== o); G.accordi ||= [];
+    G.accordi.push({ ...o, inizio: G.ora, fine: G.ora + o.anni * 365 * GIORNO, avvisi: 0, incassato: 0, risparmiato: 0 });
+    vendite(G); notizia(G, `Accordo firmato con ${o.nome}. Hai 30 giorni per raggiungere ${o.minVoli} voli a settimana.`, 'buona');
+    return ok('Accordo firmato');
+  }
+  function rifiutaOfferta(G, id) { G.offerte = (G.offerte || []).filter(x => x.id !== id); return ok('Offerta rifiutata'); }
+  function recediAccordo(G, id) {
+    const a = (G.accordi || []).find(x => x.id === id); if (!a) return err('Accordo inesistente');
+    paga(G, a.penale, 'altro'); G.accordi = G.accordi.filter(x => x !== a); G.reputazione = Math.max(0, G.reputazione - 1);
+    return ok(`Accordo con ${a.nome} chiuso: penale di ${eur(a.penale)}`);
+  }
+  function statoAccordo(G, a) {
+    const voli = a.tipo === 'aeroporto' ? voliSettDa(G, a.iata) : voliSettRotta(G, a.k), prezzoOk = a.tipo !== 'regione' || !G.rotte[a.k] || G.rotte[a.k].pY <= a.prezzoMax;
+    return { voli, ok: voli >= a.minVoli && prezzoOk, prezzoOk, grazia: G.ora - a.inizio < 30 * GIORNO };
+  }
+  function settimanaAccordi(G) {
+    for (const a of (G.accordi || []).slice()) {
+      if (G.ora >= a.fine) { G.accordi = G.accordi.filter(x => x !== a); notizia(G, `Concluso l’accordo con ${a.nome}.`, 'info'); continue; }
+      const s = statoAccordo(G, a); if (s.ok || s.grazia) { a.avvisi = 0; continue; }
+      a.avvisi++;
+      const motivo = s.prezzoOk ? `solo ${s.voli} voli a settimana invece di ${a.minVoli}` : `prezzo Economy oltre ${eur(a.prezzoMax)}`;
+      if (a.avvisi >= 2) { paga(G, a.penale, 'altro'); G.accordi = G.accordi.filter(x => x !== a); notizia(G, `${a.nome} rescinde l’accordo (${motivo}): penale di ${eur(a.penale)}.`, 'cattiva', true); }
+      else notizia(G, `${a.nome}: accordo non rispettato (${motivo}). Se non sistemi entro una settimana scatta la penale di ${eur(a.penale)}.`, 'cattiva', true);
+    }
+  }
+
+  /* ---------- Emissioni e carburante sostenibile ---------- */
+  // quota delle emissioni da pagare: in Europa all'inizio ci sono quote gratuite che si riducono ogni anno
+  let ANNO_CO2 = 2027;
+  const QUOTA_CO2 = (da, a) => (AP[da].continente === 'Europa' || AP[a].continente === 'Europa' ? 1 : 0.25) * clamp(0.4 + 0.06 * (ANNO_CO2 - 2027), 0.4, 1);
+  function aggiornaCo2(G) { ANNO_CO2 = loc(G.ora).getUTCFullYear(); G.co2 = clamp((G.co2 || 70) + 9 / 365 + (rnd() - 0.5) * 0.8, 40, 250); }
+
+  /* ---------- Orario estivo e invernale ---------- */
+  const stagioneDi = t => { const m = loc(t).getUTCMonth(); return m >= 3 && m <= 9 ? 'estate' : 'inverno'; };
+  function controllaStagione(G) {
+    const s = stagioneDi(G.ora); G.stagione ||= s;
+    if (s === G.stagione) return;
+    G.stagione = s; let n = 0;
+    for (const ae of flottaAttiva(G)) if (ae.progAlt) {
+      const p = ae.prog; ae.prog = ae.progAlt; ae.progAlt = p; delete ae._piano; n++;
+      for (const k in (G.fissi || {})) if (k.startsWith(ae.id + '#')) delete G.fissi[k];
+      ae.base = ae.prog.giorni[0].scali[0]; rigeneraAereo(G, ae);
+    }
+    G._roster = null; autoAssumi(G);
+    notizia(G, `Inizia l’orario ${s === 'estate' ? 'estivo' : 'invernale'}${n ? `: ${n} aerei passano al programma ${s === 'estate' ? 'estivo' : 'invernale'}` : ''}.`, 'info', true);
+  }
+  function salvaStagione(G, aeId, prog) {
+    const ae = G.aerei.find(a => a.id === aeId); if (!ae) return { E: ['Aereo inesistente'], W: [] };
+    const v = validaProgramma(G, ae, prog); if (v.E.length) return v;
+    ae.progAlt = normalizza(prog); return v;
+  }
+
+  /* ---------- Giornale mensile e bilancio annuale ---------- */
+  const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  function sommario(l) {
+    const s = { pax: 0, voli: 0, canc: 0, puntuali: 0, posti: 0, ricavi: 0, costi: 0, utile: 0, extra: 0, co2: 0, dettaglio: {} };
+    for (const x of l) { for (const k of ['pax', 'voli', 'canc', 'puntuali', 'posti', 'ricavi', 'costi', 'utile', 'extra', 'co2']) s[k] += x[k] || 0; for (const [k, v] of Object.entries(x.dettaglio || {})) s.dettaglio[k] = (s.dettaglio[k] || 0) + v; }
+    s.lf = s.posti ? s.pax / s.posti : 0; s.punt = s.voli ? s.puntuali / s.voli : 0; return s;
+  }
+  function paxRivale(R) { let p = 0; for (const [k, x] of Object.entries(R.rotte)) { const [a, b] = k.split('-'), d = km(a, b); p += x.freq * 2 * 30 * (d > 5000 ? 260 : 150) * 0.8; } return Math.round(p); }
+  function pubblicaGiornale(G) {
+    const d = loc(G.ora), m = (d.getUTCMonth() + 11) % 12, y = d.getUTCMonth() === 0 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+    const delMese = (mm, yy) => G.storico.filter(x => { const q = loc(x.t); return q.getUTCMonth() === mm && q.getUTCFullYear() === yy; });
+    const ora = sommario(delMese(m, y)), prima = sommario(delMese((m + 11) % 12, m === 0 ? y - 1 : y));
+    if (!ora.voli && !ora.canc) return;
+    const var_ = (a, b) => b ? Math.round((a / b - 1) * 100) : null, vp = var_(ora.pax, prima.pax), titoli = [];
+    titoli.push(ora.utile >= 0 ? { tono: 'buona', t: `${G.nome} chiude ${MESI[m]} in utile`, testo: `${eur(ora.utile)} di utile su ${eur(ora.ricavi)} di ricavi${prima.voli ? `, contro ${eur(prima.utile)} del mese prima` : ''}.` }
+      : { tono: 'cattiva', t: `Mese in rosso per ${G.nome}`, testo: `Perdita di ${eur(-ora.utile)} a ${MESI[m]}. ${ora.lf < 0.6 ? 'Troppi posti vuoti, dicono gli analisti.' : 'I costi corrono più dei ricavi.'}` });
+    titoli.push({ tono: vp == null || vp >= 0 ? 'buona' : 'cattiva', t: `${ora.pax.toLocaleString('it-IT')} passeggeri${vp != null ? ` (${vp >= 0 ? '+' : ''}${vp}%)` : ''}`, testo: `Aerei pieni in media al ${Math.round(ora.lf * 100)}%, ${ora.voli} voli operati.` });
+    titoli.push(ora.punt >= 0.85 ? { tono: 'buona', t: `Puntualità al ${Math.round(ora.punt * 100)}%`, testo: ora.canc ? `${ora.canc} voli cancellati.` : 'Nessun volo cancellato.' } : { tono: 'cattiva', t: `Ritardi: puntuale solo il ${Math.round(ora.punt * 100)}% dei voli`, testo: `${ora.canc} cancellazioni. I passeggeri protestano.` });
+    const da = Date.UTC(y, m, 1) - FUSO * ORA, imp = G.notizie.filter(n => n.t >= da && n.imp && !/Riunione|Decisione da prendere|giornale|orario|tra \d+ giorni|Missione|proposte di accordo|Traguardo/i.test(n.testo)).slice(0, 4);
+    for (const n of imp) titoli.push({ tono: n.tipo, t: n.testo.split(/\.\s|: /)[0].replace(/\.$/, ''), testo: n.testo });
+    const classifica = [{ nome: G.nome, pax: ora.pax, tu: true }, ...G.rivali.map(R => ({ nome: R.nome, pax: paxRivale(R), colore: R.colore }))].sort((a, b) => b.pax - a.pax);
+    const voto = clamp(Math.round((G.reputazione / 20 + ora.punt * 3 + (ora.utile > 0 ? 2 : 0) + (vp > 0 ? 1 : 0)) * 10) / 10, 1, 10);
+    (G.giornali ||= []).unshift({ t: G.ora, mese: `${MESI[m]} ${y}`, titoli, classifica, voto, posizione: classifica.findIndex(x => x.tu) + 1 });
+    if (G.giornali.length > 24) G.giornali.length = 24;
+    notizia(G, `È uscito il giornale di ${MESI[m]}: ${titoli[0].t} (voto della stampa ${voto}/10).`, 'info', true);
+  }
+  function bilancioAnnuale(G) {
+    const y = loc(G.ora).getUTCFullYear() - 1, l = G.storico.filter(x => loc(x.t).getUTCFullYear() === y); if (l.length < 20) return;
+    const s = sommario(l);
+    (G.bilanci ||= []).unshift({ anno: y, giorni: l.length, ...s, flotta: flottaAttiva(G).length, rotte: Object.keys(G.rotte).length, valore: Math.round(valoreCompagnia(G)), fiducia: Math.round(G.cda.fiducia) });
+    notizia(G, `Bilancio ${y}: utile ${eur(s.utile)}, ${s.pax.toLocaleString('it-IT')} passeggeri, ${Math.round(s.co2).toLocaleString('it-IT')} t di CO₂. Lo trovi in Oggi › Giornale.`, s.utile >= 0 ? 'buona' : 'cattiva', true);
+  }
+  function giornoEspansione(G) {
+    aggiornaCo2(G); controllaModelli(G); controllaStagione(G);
+    const d = loc(G.ora);
+    if (d.getUTCDate() === 1) { pubblicaGiornale(G); if (d.getUTCMonth() === 0) bilancioAnnuale(G); if (d.getUTCMonth() % 2 === 0) nuoveOfferte(G); }
+    if (giornoSett(G.ora) === 0) settimanaAccordi(G);
+  }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -1845,11 +2009,17 @@ const SIM = (() => {
       delete G.rotte[k]; return ok('Rotta chiusa');
     },
     prezzi(G, k, p) { const r = G.rotte[k]; for (const c of CL) if (p['p' + c] != null && !isNaN(p['p' + c])) r['p' + c] = clamp(Math.round(p['p' + c]), 10, 5000); vendite(G); return ok('Prezzi aggiornati'); },
-    compraNuovo(G, mod, modo, base, cab) {
+    compraNuovo(G, mod, modo, base, cab, attesa = 1) {
       const m = MOD[mod], e = validaCabina(mod, cab); if (e) return err(e);
-      const costo = modo === 'proprieta' ? m.prezzo : m.leasing * 30; if (G.cassa < costo) return err(`Servono ${eur(costo)} in cassa`);
+      if (!annunciato(G, mod)) return err('Modello non ancora in vendita');
+      attesa = [1, 12, 24].includes(+attesa) ? +attesa : 1;
+      const sc = SCONTO_ATTESA[attesa], consegna = Math.max(G.ora + (attesa === 1 ? 30 : Math.round(attesa * 30.4)) * GIORNO, disponibileDal(G, mod) || 0), lungo = consegna - G.ora > 60 * GIORNO;
+      const prezzo = Math.round(m.prezzo * (1 - sc)), canone = Math.round(m.leasing * (1 - sc / 1.5) / 100) * 100;
+      const costo = modo === 'proprieta' ? (lungo ? Math.round(prezzo * 0.1) : prezzo) : canone * 30; if (G.cassa < costo) return err(`Servono ${eur(costo)} in cassa`);
       G.cassa -= costo; if (modo === 'leasing') G.oggi.costi.altro += costo;
-      const ae = aggiungiAereo(G, mod, modo, base, { consegna: G.ora + 30 * GIORNO, oreDaCheck: 0, cab });
+      const ae = aggiungiAereo(G, mod, modo, base, { consegna, oreDaCheck: 0, cab, prezzo, leasing: canone });
+      if (lungo) { ae.acconto = costo; if (modo === 'proprieta') ae.saldo = prezzo - costo; }
+      if (lungo) { notizia(G, `Ordinato ${m.nome} (${ae.marche}) con consegna il ${dataDi(consegna)}: ${modo === 'proprieta' ? `acconto ${eur(costo)}, saldo ${eur(prezzo - costo)} alla consegna` : `canone ${eur(canone)} al giorno dalla consegna`}${sc ? ` (sconto ${Math.round(sc * 100)}%)` : ''}.`, 'info'); return ok('Ordine confermato'); }
       notizia(G, `Ordinato ${m.nome} ${modo === 'leasing' ? 'in leasing' : 'in proprietà'} (${ae.marche}, ${cab.J}J · ${cab.W}W · ${cab.Y}Y): consegna tra 30 giorni a ${base}.`, 'info');
       return ok('Ordine confermato');
     },
@@ -2029,6 +2199,15 @@ const SIM = (() => {
     chiudiAlleanza(G, rid) { return chiudiAlleanza(G, rid); },
     jointVenture(G, rid, k) { return jointVenture(G, rid, k); },
     acquisisci(G, rid) { return acquisisci(G, rid); },
+    annullaOrdine(G, id) { return annullaOrdine(G, id); },
+    chiediOfferta(G, iata) { return chiediOfferta(G, iata); },
+    accettaOfferta(G, id) { return accettaOfferta(G, id); },
+    rifiutaOfferta(G, id) { return rifiutaOfferta(G, id); },
+    recediAccordo(G, id) { return recediAccordo(G, id); },
+    saf(G, x) { G.saf = clamp(+x || 0, 0, 0.5); vendite(G); return ok(G.saf ? `Carburante sostenibile al ${Math.round(G.saf * 100)}%` : 'Niente carburante sostenibile'); },
+    salvaStagione(G, aeId, prog) { return salvaStagione(G, aeId, prog); },
+    copiaStagione(G, aeId) { const ae = G.aerei.find(a => a.id === aeId); if (!ae) return err('Aereo inesistente'); ae.progAlt = normalizza(JSON.parse(JSON.stringify(ae.prog))); return ok('Programma copiato nell’altra stagione'); },
+    togliStagione(G, aeId) { const ae = G.aerei.find(a => a.id === aeId); if (ae) delete ae.progAlt; return ok('Stesso programma tutto l’anno'); },
     progetto(G, tipo) { return avviaProgetto(G, tipo); },
     quotazione(G, quota = 0.3) {
       const B = G.borsa; if (B.quotata) return err('Sei già quotato');
@@ -2074,6 +2253,6 @@ const SIM = (() => {
     }
   };
 
-  return { valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

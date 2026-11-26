@@ -118,7 +118,7 @@ function tabellaRegistro() {
       <td>${barretta(r.posti ? r.pax / r.posti : 0, `${r.pax}/${r.posti}`, [2, 2])}</td><td class="num">${rc.J ? eur(rc.J) : ''}</td><td class="num">${rc.W ? eur(rc.W) : ''}</td><td class="num">${eur(rc.Y)}</td><td class="num">${eur(r.ricavi)}</td><td class="num">${eur(r.costi)}</td><td class="num">${segno(r.ricavi - r.costi)}</td>
       <td>${r.stato === 'canc' ? `<span class="badge b-err">Cancellato</span> <span class="muto piccolo">${h(r.motivo)}</span>` : r.rit > 15 ? '<span class="badge b-warn">In ritardo</span>' : '<span class="badge b-ok">Puntuale</span>'}</td></tr>`; }).join('')}</tbody></table>`;
 }
-const VOCI = { alleanze: 'Alleanze e joint venture', negati: 'Passeggeri lasciati a terra', prodotto: 'Prodotto e fedeltà (fissi)', carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
+const VOCI = { co2: 'Emissioni di CO₂', alleanze: 'Alleanze e joint venture', negati: 'Passeggeri lasciati a terra', prodotto: 'Prodotto e fedeltà (fissi)', carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
 function dettaglioVolo(r) {
   const pc = r.paxC || SIM.zero(), rc = r.ricaviC || SIM.zero(), cab = r.cab || SIM.zero();
   modale({ titolo: `Volo ${h(r.num)} · ${r.da} → ${r.a}`, corpo: `<p>${fmtData(r.dep)} · ${h(r.marche)} · equipaggio ${h(r.equip || '—')} (base ${h(r.base || '—')}) · ${r.stato === 'canc' ? 'cancellato: ' + h(r.motivo) : `partito ${fmtOra(r.depEff)} (ritardo ${r.rit}′), atterrato ${fmtOra(r.arrEff)}`}</p>
@@ -156,7 +156,7 @@ function cartaAereo(ae) {
     <div class="azioni">
       ${SIM.mediaCiclo(ae).ore ? '' : `<button class="piccolo primario" data-az="guida" data-id="${ae.id}">✨ Rotazione guidata</button>`}<button class="piccolo ${SIM.mediaCiclo(ae).ore ? 'primario' : ''}" data-az="vai-prog" data-id="${ae.id}">Rotazione</button>
       <button class="piccolo" data-az="riconfigura" data-id="${ae.id}" ${ae.lavori ? 'disabled' : ''}>Cabina</button>
-      <button class="piccolo" data-az="check" data-id="${ae.id}" ${ae.lavori || ae.stato === 'consegna' ? 'disabled' : ''}>Ispezione stanotte</button>
+      ${ae.stato === 'consegna' ? `<button class="piccolo pericolo" data-az="annulla-ordine" data-id="${ae.id}">Annulla ordine</button>` : `<button class="piccolo" data-az="check" data-id="${ae.id}" ${ae.lavori ? 'disabled' : ''}>Ispezione stanotte</button>`}
       <button class="piccolo pericolo" data-az="vendi" data-id="${ae.id}">${ae.modo === 'leasing' ? 'Restituisci' : 'Vendi'}</button>
     </div></div>`;
 }
@@ -200,11 +200,15 @@ VISTE.programmazione = () => {
   if (!f.length) return '<div class="testata"><h1>Programmazione</h1></div><p class="vuoto">Nessun aereo.</p>';
   if (!UI.aereoSel || !f.find(a => a.id === UI.aereoSel)) UI.aereoSel = f[0].id;
   const ae = f.find(a => a.id === UI.aereoSel);
-  if (!bozza || bozza.aeId !== ae.id) {
-    const giorni = SIM.normalizza(ae.prog).giorni;
-    bozza = { aeId: ae.id, turn: ae.prog.turn, giorni, sel: SIM.giornoSett(G.ora), orig: JSON.stringify({ turn: ae.prog.turn, giorni }) };
+  if (!bozza || bozza.aeId !== ae.id || !!bozza.altra !== !!UI.stagioneAlt) {
+    const src = UI.stagioneAlt ? (ae.progAlt || ae.prog) : ae.prog, giorni = SIM.normalizza(src).giorni;
+    bozza = { aeId: ae.id, turn: src.turn, giorni, sel: SIM.giornoSett(G.ora), orig: UI.stagioneAlt && !ae.progAlt ? '' : JSON.stringify({ turn: src.turn, giorni }), altra: !!UI.stagioneAlt };
   }
+  const stOra = G.stagione === 'estate' ? 'estivo' : 'invernale', stAltra = G.stagione === 'estate' ? 'invernale' : 'estivo', dalAltra = G.stagione === 'estate' ? 'novembre' : 'aprile';
   return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ha un programma settimanale, da lunedì a domenica. Notti e soste lunghe solo nelle basi; nessun decollo tra le 00:30 e le 05:30 ora locale. Orari nell’ora di ${h(citta(G.basi[0]))}, tra parentesi l’ora locale.</span></div>
+  <div class="stagioni"><div class="segmenti"><button data-az="stagione-ed" data-alt="0" class="${UI.stagioneAlt ? '' : 'on'}">Orario ${stOra} · in corso</button><button data-az="stagione-ed" data-alt="1" class="${UI.stagioneAlt ? 'on' : ''}">Orario ${stAltra} · da ${dalAltra}</button></div>
+    <span class="piccolo muto">${ae.progAlt ? `${h(ae.marche)} ha un programma diverso per l’orario ${stAltra}.` : `${h(ae.marche)} vola lo stesso programma tutto l’anno.`}</span>${ae.progAlt ? `<button class="piccolo" data-az="togli-stagione" data-id="${ae.id}">Un solo programma</button>` : `<button class="piccolo" data-az="copia-stagione" data-id="${ae.id}">Prepara l’orario ${stAltra}</button>`}</div>
+  ${UI.stagioneAlt ? `<p class="nota">Stai modificando l’orario ${stAltra}: entra in vigore da ${dalAltra}. Le rotte devono essere aperte e gli slot sufficienti già ora.</p>` : ''}
   <div class="prog">
     <div class="lista-aerei">${f.map(a => { const mc = SIM.mediaCiclo(a); return `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span>${semaforo(salute().aerei[a.id])}<b class="mono">${h(a.marche)}</b> <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${mc.tratte.length} voli · ${Math.round(mc.ore * 7)} h</span></button>`; }).join('')}</div>
     <div class="pannello" id="editor">${editor(ae)}</div>

@@ -148,14 +148,19 @@ const DATI = (() => {
     A220: { nome: 'Airbus A220-300', spazio: 145, tipo: 'A220', vel: 800, prezzo: 52e6, consumo: 1650, manut: 470, check: 50000, autonomia: 5500, peso: 70 },
     A319: { nome: 'Airbus A319', spazio: 144, tipo: 'A320', vel: 780, prezzo: 38e6, consumo: 2300, manut: 540, check: 55000, autonomia: 5500, peso: 75 },
     A320: { nome: 'Airbus A320', spazio: 180, tipo: 'A320', vel: 790, prezzo: 46e6, consumo: 2450, manut: 600, check: 60000, autonomia: 5500, peso: 78 },
-    A20N: { nome: 'Airbus A320neo', spazio: 186, tipo: 'A320', vel: 800, prezzo: 56e6, consumo: 2050, manut: 560, check: 60000, autonomia: 6000, peso: 79 },
+    A20N: { nome: 'Airbus A320neo', spazio: 186, tipo: 'A320', vel: 800, prezzo: 56e6, consumo: 2050, manut: 560, check: 60000, autonomia: 6000, peso: 79, sostituisce: 'A320' },
     A321: { nome: 'Airbus A321', spazio: 220, tipo: 'A320', vel: 800, prezzo: 55e6, consumo: 2850, manut: 680, check: 70000, autonomia: 5000, peso: 93 },
     A21X: { nome: 'Airbus A321XLR', spazio: 210, tipo: 'A320', vel: 820, prezzo: 66e6, consumo: 2750, manut: 720, check: 80000, autonomia: 8700, peso: 101 },
     A339: { nome: 'Airbus A330-900neo', spazio: 370, tipo: 'A330', vel: 870, prezzo: 110e6, consumo: 5700, manut: 2400, check: 200000, autonomia: 13300, peso: 251, lungo: true },
     B789: { nome: 'Boeing 787-9', spazio: 360, tipo: 'B787', vel: 900, prezzo: 130e6, consumo: 5400, manut: 2300, check: 180000, autonomia: 14000, peso: 254, lungo: true },
     A359: { nome: 'Airbus A350-900', spazio: 400, tipo: 'A350', vel: 905, prezzo: 150e6, consumo: 5800, manut: 2400, check: 200000, autonomia: 15000, peso: 283, lungo: true },
     B77W: { nome: 'Boeing 777-300ER', spazio: 470, tipo: 'B777', vel: 900, prezzo: 160e6, consumo: 7600, manut: 3000, check: 260000, autonomia: 13600, peso: 351, lungo: true },
-    A388: { nome: 'Airbus A380', spazio: 700, tipo: 'A380', vel: 900, prezzo: 230e6, consumo: 11000, manut: 4200, check: 400000, autonomia: 15000, peso: 575, lungo: true }
+    A388: { nome: 'Airbus A380', spazio: 700, tipo: 'A380', vel: 900, prezzo: 230e6, consumo: 11000, manut: 4200, check: 400000, autonomia: 15000, peso: 575, lungo: true },
+    // modelli che entrano in servizio più avanti (si possono ordinare con anticipo)
+    A35K: { nome: 'Airbus A350-1000', spazio: 470, tipo: 'A350', vel: 905, prezzo: 172e6, consumo: 6500, manut: 2600, check: 220000, autonomia: 16000, peso: 316, lungo: true, dal: [2028, 3], sostituisce: 'B77W' },
+    A225: { nome: 'Airbus A220-500', spazio: 178, tipo: 'A220', vel: 800, prezzo: 60e6, consumo: 1850, manut: 500, check: 52000, autonomia: 5000, peso: 80, dal: [2028, 9], sostituisce: 'A321' },
+    B779: { nome: 'Boeing 777-9', spazio: 520, tipo: 'B777', vel: 905, prezzo: 190e6, consumo: 7000, manut: 2900, check: 250000, autonomia: 13500, peso: 351, lungo: true, dal: [2029, 4], sostituisce: 'A388' },
+    ATRE: { nome: 'ATR EVO', spazio: 72, tipo: 'ATR', vel: 490, prezzo: 30e6, consumo: 560, manut: 260, check: 24000, autonomia: 1600, peso: 23, dal: [2030, 1], sostituisce: 'ATR72' }
   };
   for (const m of Object.values(MODELLI)) { m.posti = m.spazio; m.leasing = Math.round(m.prezzo * (m.tipo === 'ATR' ? 0.000115 : 0.00016) / 100) * 100; }
 

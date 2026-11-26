@@ -659,3 +659,25 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
   .schede-area a { min-height: 44px; }
   details > summary { min-height: 40px; display: flex; align-items: center; }
 }
+
+/* ---------- Giornale, accordi, stagioni ---------- */
+.giornale { background: #fbf8f1; color: #1c1a17; border: 1px solid #d8d1c2; border-radius: var(--raggio); padding: 22px 26px; font-family: Georgia, "Times New Roman", serif; box-shadow: var(--ombra); }
+.giornale header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; border-bottom: 3px double #1c1a17; padding-bottom: 8px; margin-bottom: 14px; }
+.giornale header b { font: 700 30px/1 Georgia, serif; letter-spacing: -.01em; }
+.giornale header span { font: 13px/1.3 var(--f-testo); color: #5b554b; }
+.g-titolo { font: 700 28px/1.15 Georgia, serif; margin: 0 0 6px; text-transform: none; letter-spacing: 0; }
+.g-titolo.cattiva { color: #9b1c1c; }
+.g-occhiello { font-size: 16px; margin: 0 0 16px; color: #3d3830; }
+.g-colonne { columns: 2 260px; column-gap: 26px; column-rule: 1px solid #d8d1c2; }
+.g-colonne section { break-inside: avoid; margin-bottom: 14px; }
+.g-colonne h3 { font: 700 17px/1.25 Georgia, serif; margin: 0 0 4px; text-transform: none; letter-spacing: 0; color: #1c1a17; }
+.g-colonne section.cattiva h3 { color: #9b1c1c; }
+.g-colonne p { margin: 0; font-size: 14px; line-height: 1.45; color: #3d3830; }
+.g-sez { font: 700 13px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .08em; border-top: 1px solid #1c1a17; padding-top: 10px; margin-top: 18px; color: #1c1a17; }
+.g-classifica { margin: 6px 0 0; padding-left: 22px; font: 14px/1.6 var(--f-testo); }
+.g-classifica li span { float: right; font-family: var(--f-mono); }
+.g-classifica li.tu { font-weight: 700; }
+.giornale .nota { color: #6b6457; }
+.stagioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.carta.accordo p { margin: 6px 0; font-size: 14px; line-height: 1.45; }
+@media (max-width: 800px) { .giornale { padding: 16px; } .giornale header b { font-size: 24px; } .g-titolo { font-size: 22px; } .stagioni .segmenti { width: 100%; } .stagioni .segmenti button { flex: 1; } }
