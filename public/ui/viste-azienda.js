@@ -56,7 +56,7 @@ VISTE.personale = () => {
     <div><small>Ore di volo medie</small><b>${num(cop.oreMedie, 1)} h</b><span>per equipaggio a settimana (max ${SIM.MAX_ORE})</span></div>
     <div><small>Morale</small><b>${Math.round(G.morale)}/100</b><span>${G.morale < 30 ? 'rischio sciopero!' : G.morale < 50 ? 'basso' : 'buono'}</span></div>
   </div>
-  ${bannerMancanti()}`;
+  ${bannerTrattativa()}${bannerMancanti()}${pannelliLavoro()}`;
   for (const b of G.basi) {
     const eqB = G.equipaggi.filter(e => e.base === b), scop = r.scoperte.filter(c => c.base === b);
     s += `<div class="pannello"><div class="testata" style="margin-bottom:8px"><h2 style="margin:0">Base di ${h(citta(b))} (${b})${G.hub.includes(b) ? ' · hub' : ''}</h2><span class="sotto">${eqB.length} equipaggi${scop.length ? ` · <span class="neg">${scop.length} turni scoperti</span>` : ''}</span></div>

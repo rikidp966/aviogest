@@ -4,6 +4,17 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  'firma-carta': el => { if (esito(SIM.A.firmaCarta(G, el.dataset.id))) render(); },
+  scuola: () => conferma('Aprire la scuola piloti?', 'Costa 2,5 M€ subito e 4.000 € al giorno. Il primo corso finisce tra 4 mesi, poi 6 nuovi piloti ogni 2 mesi: assunzioni in 3 giorni e molto più economiche.', 'Apri la scuola', () => { if (esito(SIM.A.scuolaPiloti(G))) render(); }),
+  'apri-trattativa': () => apriTrattativa(),
+  sind: el => {
+    const t = el.dataset.t, aumento = (+$('#sindAumento')?.value || 0) / 100, premio = !!$('#sindPremio')?.checked;
+    if (t === 'rompi') return conferma('Rompere la trattativa?', 'Il sindacato proclama tre giorni di sciopero e il morale crolla. Si riparte tra un mese.', 'Rompi', () => { esito(SIM.A.trattativa(G, { tipo: 'rompi' })); chiudiModale(); dopoAzione(); });
+    UI.propostaSind = aumento * 100;
+    const r = SIM.A.trattativa(G, { tipo: t, aumento, premio });
+    if (r.ok) { toast(r.msg, 'buona'); suono('buona'); chiudiModale(); UI.propostaSind = null; dopoAzione(); }
+    else { toast(r.errore, 'cattiva'); if (G.trattativa) apriTrattativa(); else chiudiModale(); render(); }
+  },
   'accetta-offerta': el => { if (esito(SIM.A.accettaOfferta(G, el.dataset.id))) render(); },
   'rifiuta-offerta': el => { esito(SIM.A.rifiutaOfferta(G, el.dataset.id)); render(); },
   recedi: el => { const a = G.accordi.find(x => x.id === el.dataset.id); conferma(`Recedere dall’accordo con ${a.nome}?`, `Paghi una penale di ${eur(a.penale)} e perdi gli sconti o i contributi.`, 'Recedi', () => { esito(SIM.A.recediAccordo(G, el.dataset.id)); render(); }); },

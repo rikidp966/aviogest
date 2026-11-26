@@ -37,7 +37,7 @@ const SCEN = () => D.SCENARI[G.scenario];
 
 VISTE.panoramica = () => `
   <div class="testata"><h1>${h(G.nome)}</h1><span class="sotto">${SCEN().nome} · giorno ${Math.floor((G.ora - G.inizio) / GIORNO) + 1} · basi ${G.basi.join(', ')}${G.hub.length ? ' · hub ' + G.hub.join(', ') : ''}</span></div>
-  ${bannerDilemma()}${bannerRiunione()}${primiPassi()}
+  ${bannerDilemma()}${bannerTrattativa()}${bannerRiunione()}${primiPassi()}
   <div class="griglia g2 sopra"><div class="pannello" id="consigli">${consigliHTML()}</div><div class="pannello" id="missioni">${missioniHTML()}</div></div>
   <div class="griglia g-21 mt">
     <div class="pannello"><div id="mappaPosto"></div><p class="nota">Aerei in volo in blu, a terra in grigio, in manutenzione in giallo, guasti in rosso. Basi in blu, hub con l’anello giallo. Le rotte tratteggiate sono aperte ma senza voli.</p></div>
@@ -118,7 +118,7 @@ function tabellaRegistro() {
       <td>${barretta(r.posti ? r.pax / r.posti : 0, `${r.pax}/${r.posti}`, [2, 2])}</td><td class="num">${rc.J ? eur(rc.J) : ''}</td><td class="num">${rc.W ? eur(rc.W) : ''}</td><td class="num">${eur(rc.Y)}</td><td class="num">${eur(r.ricavi)}</td><td class="num">${eur(r.costi)}</td><td class="num">${segno(r.ricavi - r.costi)}</td>
       <td>${r.stato === 'canc' ? `<span class="badge b-err">Cancellato</span> <span class="muto piccolo">${h(r.motivo)}</span>` : r.rit > 15 ? '<span class="badge b-warn">In ritardo</span>' : '<span class="badge b-ok">Puntuale</span>'}</td></tr>`; }).join('')}</tbody></table>`;
 }
-const VOCI = { co2: 'Emissioni di CO₂', alleanze: 'Alleanze e joint venture', negati: 'Passeggeri lasciati a terra', prodotto: 'Prodotto e fedeltà (fissi)', carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
+const VOCI = { fedelta: 'Programma fedeltà (premi e vantaggi)', co2: 'Emissioni di CO₂', alleanze: 'Alleanze e joint venture', negati: 'Passeggeri lasciati a terra', prodotto: 'Prodotto e fedeltà (fissi)', carburante: 'Carburante', tasse: 'Tasse aeroportuali', handling: 'Assistenza a terra', navigazione: 'Navigazione aerea', manutenzione: 'Manutenzione', servizio: 'Servizio di bordo', rimborsi: 'Rimborsi ai passeggeri', equipaggi: 'Equipaggi fuori base (albergo e trasferimenti)', soste: 'Soste fuori base (parcheggio)', marketing: 'Marketing e pubblicità', leasing: 'Leasing aerei', personale: 'Stipendi', basi: 'Basi operative', hub: 'Gestione hub', sede: 'Sede e amministrazione', interessi: 'Interessi sui prestiti', assicurazione: 'Assicurazioni', altro: 'Altre spese e investimenti' };
 function dettaglioVolo(r) {
   const pc = r.paxC || SIM.zero(), rc = r.ricaviC || SIM.zero(), cab = r.cab || SIM.zero();
   modale({ titolo: `Volo ${h(r.num)} · ${r.da} → ${r.a}`, corpo: `<p>${fmtData(r.dep)} · ${h(r.marche)} · equipaggio ${h(r.equip || '—')} (base ${h(r.base || '—')}) · ${r.stato === 'canc' ? 'cancellato: ' + h(r.motivo) : `partito ${fmtOra(r.depEff)} (ritardo ${r.rit}′), atterrato ${fmtOra(r.arrEff)}`}</p>

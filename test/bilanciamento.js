@@ -47,7 +47,9 @@ const prova = f => { const g = SIM.nuovaPartita('libera', { nome: 'T', codice: '
   ['ATH', 'MAD'].forEach((d, i) => SIM.A.applicaRotazione(g, g.aerei[i].id, SIM.rotazioneGuidata(g, g.aerei[i].id, { tipo: 'navetta', dest: [d], giri: 2 })));
   for (const x in g.rotte) { const r = g.rotte[x]; SIM.A.prezzi(g, x, { pY: r.pY * f, pW: r.pW * f, pJ: r.pJ * f }); }
   SIM.avanza(g, 50 * SIM.GIORNO); return [media(g, 15, 'utile'), riempimento(g, 15)]; };
-const [u1, lf1] = prova(1), [u13] = prova(1.3), [u2, lf2] = prova(2);
+// media di due partite per ogni prezzo: gli eventi casuali (guasti, meteo) pesano molto su 50 giorni
+const due = f => { const a = prova(f), b = prova(f); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+const [u1, lf1] = due(1), [u13] = due(1.3), [u2, lf2] = due(2);
 controlla('Prezzi ×1,3 rendono più che ×1', u13 / Math.max(1, u1), 1.05, 3, v => v.toFixed(2));
 controlla('Prezzi ×2 non rendono molto più di ×1,3', u2 / Math.max(1, u13), 0, 1.15, v => v.toFixed(2));
 controlla('Riempimento a prezzi ×2', lf2, 0.2, 0.8, v => Math.round(v * 100) + '%');

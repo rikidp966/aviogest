@@ -688,3 +688,8 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
   #vista select { min-height: 40px; }
   .pilota a { display: inline-block; padding: 12px 4px; margin: -12px -4px; }
 }
+
+.banner-riunione.trattativa { border-left-color: var(--warn); }
+.banner-riunione.trattativa b { color: #f0b04a; }
+.form label.interruttore { display: grid; grid-template-columns: auto 1fr; flex-direction: row; text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--f-testo); color: var(--testo); }
+.form label.interruttore small { text-transform: none; letter-spacing: 0; font-weight: 400; }
