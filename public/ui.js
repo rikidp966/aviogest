@@ -286,7 +286,8 @@ const SCEN = () => D.SCENARI[G.scenario];
 VISTE.panoramica = () => `
   <div class="testata"><h1>${h(G.nome)}</h1><span class="sotto">${SCEN().nome} · giorno ${Math.floor((G.ora - G.inizio) / GIORNO) + 1} · basi ${G.basi.join(', ')}${G.hub.length ? ' · hub ' + G.hub.join(', ') : ''}</span></div>
   ${primiPassi()}
-  <div class="griglia g-21">
+  <div class="griglia g2 sopra"><div class="pannello" id="consigli">${consigliHTML()}</div><div class="pannello" id="missioni">${missioniHTML()}</div></div>
+  <div class="griglia g-21 mt">
     <div class="pannello"><div id="mappaPosto"></div><p class="nota">Aerei in volo in blu, a terra in grigio, in manutenzione in giallo, guasti in rosso. Basi in blu, hub con l’anello giallo. Le rotte tratteggiate sono aperte ma senza voli.</p></div>
     <div><div class="pannello" id="live">${live()}</div><div class="pannello"><h2>Obiettivi</h2>${obiettiviHTML()}</div></div>
   </div>
@@ -326,11 +327,10 @@ function obiettiviHTML() {
 function primiPassi() {
   if (G.stat.voli > 0 || G.scenario === 'crisi') return '';
   const passi = [
-    [Object.keys(G.rotte).length > 0, 'Apri la prima rotta dalla tua base', '#/rotte'],
-    [G.aerei.some(a => a.prog.giorni.some(g => g.scali.length > 1)), 'Crea la rotazione dell’aereo (inizia e finisce in una base)', '#/programmazione'],
+    [G.aerei.some(a => a.prog.giorni.some(g => g.scali.length > 1)), 'Dai una rotazione al primo aereo con la ✨ Rotazione guidata: sceglie orari e apre le rotte per te', 'guida'],
     [vel > 0, 'Avvia il tempo con ▶ in alto', null]
   ];
-  return `<div class="pannello" style="margin-bottom:16px"><h2>Primi passi</h2><ul class="problemi">${passi.map(([fatto, t, l]) => `<li class="${fatto ? 'ok' : 'avviso'}">${fatto ? '✓' : '○'} ${l && !fatto ? `<a href="${l}">${t}</a>` : t}</li>`).join('')}</ul>
+  return `<div class="pannello" style="margin-bottom:16px"><h2>Primi passi</h2><ul class="problemi">${passi.map(([fatto, t, l]) => `<li class="${fatto ? 'ok' : 'avviso'}">${fatto ? '✓' : '○'} ${l === 'guida' && !fatto && flotta()[0] ? `<a href="#" data-az="guida" data-id="${flotta()[0].id}">${t}</a>` : l && !fatto ? `<a href="${l}">${t}</a>` : t}</li>`).join('')}</ul>
     <p class="nota">Gli ATR rendono sulle tratte brevi. Più avanti: apri una seconda base per far dormire gli aerei fuori casa, e trasforma una base in hub per vendere voli in coincidenza.</p></div>`;
 }
 
@@ -391,6 +391,7 @@ function cartaAereo(ae) {
   return `<div class="pannello carta">
     <div class="riga" style="margin:0"><span class="titolo" style="color:var(--testo)">${h(ae.marche)}</span><span class="badge ${st.c}">${h(st.t)}</span></div>
     <div class="muto">${m.nome} · ${SIM.posti(ae)} posti</div>
+    ${(() => { const s = salute().aerei[ae.id]; return s ? `<div class="salute ${s.c}">${semaforo(s)}${h(s.t)}</div>` : ''; })()}
     <div style="margin-top:6px">${chipCab(ae.cab)}</div>
     ${barraCabina(ae.modello, ae.cab)}
     <div class="riga"><span>Contratto</span><span>${ae.modo === 'leasing' ? `Leasing ${eur(ae.leasing)}/g` : `Proprietà · valore ${mln(ae.valore)}`}</span></div>
@@ -401,7 +402,7 @@ function cartaAereo(ae) {
     ${barretta(ae.oreDaCheck / 600, `${Math.round(ae.oreDaCheck)}/600 h`, [0.85, 1.0])}
     <label class="piccolo"><input type="checkbox" data-az="autocheck" data-id="${ae.id}" ${ae.autoCheck ? 'checked' : ''}> Ispezione automatica notturna quando serve</label>
     <div class="azioni">
-      <button class="piccolo primario" data-az="vai-prog" data-id="${ae.id}">Rotazione</button>
+      ${SIM.mediaCiclo(ae).ore ? '' : `<button class="piccolo primario" data-az="guida" data-id="${ae.id}">✨ Rotazione guidata</button>`}<button class="piccolo ${SIM.mediaCiclo(ae).ore ? 'primario' : ''}" data-az="vai-prog" data-id="${ae.id}">Rotazione</button>
       <button class="piccolo" data-az="riconfigura" data-id="${ae.id}" ${ae.lavori ? 'disabled' : ''}>Cabina</button>
       <button class="piccolo" data-az="check" data-id="${ae.id}" ${ae.lavori || ae.stato === 'consegna' ? 'disabled' : ''}>Ispezione stanotte</button>
       <button class="piccolo pericolo" data-az="vendi" data-id="${ae.id}">${ae.modo === 'leasing' ? 'Restituisci' : 'Vendi'}</button>
@@ -453,7 +454,7 @@ VISTE.programmazione = () => {
   }
   return `<div class="testata"><h1>Programmazione</h1><span class="sotto">Ogni aereo ha un programma settimanale, da lunedì a domenica. Notti e soste lunghe solo nelle basi; nessun decollo tra le 00:30 e le 05:30 ora locale. Orari nell’ora di ${h(citta(G.basi[0]))}, tra parentesi l’ora locale.</span></div>
   <div class="prog">
-    <div class="lista-aerei">${f.map(a => { const mc = SIM.mediaCiclo(a); return `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span><b class="mono">${h(a.marche)}</b> <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${mc.tratte.length} voli · ${Math.round(mc.ore * 7)} h</span></button>`; }).join('')}</div>
+    <div class="lista-aerei">${f.map(a => { const mc = SIM.mediaCiclo(a); return `<button data-az="sel-aereo" data-id="${a.id}" class="${a.id === ae.id ? 'on' : ''}"><span>${semaforo(salute().aerei[a.id])}<b class="mono">${h(a.marche)}</b> <span class="muto piccolo">${a.modello}</span></span><span class="piccolo">${mc.tratte.length} voli · ${Math.round(mc.ore * 7)} h</span></button>`; }).join('')}</div>
     <div class="pannello" id="editor">${editor(ae)}</div>
   </div>
   <div id="bannerProg">${bannerMancanti()}</div>
@@ -481,7 +482,7 @@ function editor(ae) {
   const basiRientro = g.scali.length > 1 ? G.basi.filter(b => b !== ultimo && SIM.km(ultimo, b) <= m.autonomia) : [];
   const errDi = i => v.E.some(e => e.startsWith(GS[i] + ':'));
   const minimi = SIM.legsGiorno(ae, { ...g, attese: [] }, bozza.turn);
-  return `<div class="testata" style="margin-bottom:10px"><h2 style="margin:0"><span class="mono">${h(ae.marche)}</span> · ${m.nome}</h2><span class="sotto">${cabTesto(ae.cab)} · autonomia ${num(m.autonomia)} km</span></div>
+  return `<div class="testata" style="margin-bottom:10px"><h2 style="margin:0"><span class="mono">${h(ae.marche)}</span> · ${m.nome}</h2><span class="sotto">${cabTesto(ae.cab)} · autonomia ${num(m.autonomia)} km</span><span class="spazio"></span><button class="primario" data-az="guida" data-id="${ae.id}">✨ Rotazione guidata</button></div>
     ${ae.stato === 'consegna' ? `<p class="piccolo"><span class="badge b-info">In consegna a ${ae.base}</span> Puoi già preparare il programma: partirà alla consegna.</p>` : ''}
     ${settimanaGriglia(v, errDi)}
     <div class="giorno-testa"><h3>${nome}</h3>
@@ -540,7 +541,7 @@ function bannerMancanti() {
   const n = SIM.A.stimaMancanti(G, false), u = SIM.A.stimaMancanti(G, true);
   if (!n.n) return '';
   const gruppi = {}; for (const e of n.equipaggi) { const k = `${e.base} · ${e.tipo} · ${e.piloti} piloti + ${e.cabina} cabina`; gruppi[k] = (gruppi[k] || 0) + 1; }
-  return `<div class="mancano"><div><b>${n.n === 1 ? 'Manca 1 equipaggio' : `Mancano ${n.n} equipaggi`} per coprire tutti i turni della settimana</b><span class="piccolo">${Object.entries(gruppi).map(([k, q]) => `${q}× ${k}`).join(' · ')}</span></div>
+  return `<div class="mancano"><div><b>${n.n === 1 ? 'Manca 1 equipaggio' : `Mancano ${n.n} equipaggi`} per coprire tutti i turni della settimana</b><span class="piccolo">${Object.entries(gruppi).map(([k, q]) => `${q}× ${k}`).join(' · ')}${G.auto?.equipaggi ? ' · il pilota automatico li assume stanotte' : ''}</span></div>
     <div class="filtri" style="margin:0"><button class="primario" data-az="assumi-mancanti">Assumi tutti · 10 giorni · ${mln(n.costo)}</button><button data-az="assumi-mancanti" data-urg="1">Urgente · 2 giorni · ${mln(u.costo)}</button></div></div>`;
 }
 function cronoprogramma() {
@@ -564,7 +565,8 @@ VISTE.rotte = () => {
   return `<div class="testata"><h1>Rotte e prezzi</h1><span class="sotto">${righe.length} rotte aperte</span><span class="spazio"></span><button class="primario" data-az="apri-rotta">+ Apri nuova rotta</button></div>
   <div class="pannello"><div class="tab-wrap">${righe.length ? `<table><thead><tr><th>Rotta</th><th class="num">Km</th><th class="num">Voli/sett.</th><th>Business</th><th>Premium</th><th>Economy</th><th>Quota</th><th>Concorrenti</th><th>Load factor 7 gg</th><th class="num">Ricavi 7 gg</th><th class="num">Utile voli 7 gg</th><th></th></tr></thead><tbody>
     ${righe.map(([k, r]) => { const [a, b] = k.split('-'), d = SIM.km(a, b), ref = SIM.prezzoRif(d), s = statsRotta(k), riv = SIM.rivaliSu(G, a, b), f = freqRotta(k);
-      return `<tr><td><b>${a}–${b}</b> <span class="muto piccolo">${h(citta(a))}–${h(citta(b))}</span></td><td class="num">${num(d)}</td><td class="num">${num(f * 7)}</td>
+      const sal = salute().rotte[k];
+      return `<tr><td>${semaforo(sal)}<b>${a}–${b}</b> <span class="muto piccolo">${h(citta(a))}–${h(citta(b))}</span>${sal && sal.c !== 'verde' && sal.c !== 'grigio' ? `<br><span class="piccolo sal-txt ${sal.c}">${h(sal.t)}</span>` : ''}</td><td class="num">${num(d)}</td><td class="num">${num(f * 7)}</td>
       ${CL.map(c => `<td><input class="prezzo" type="number" min="10" step="1" value="${r['p' + c]}" data-prezzo="${k}" data-cl="${c}" title="Riferimento ${eur(ref * SIM.multClasse(c, d))}"></td>`).join('')}
       <td>${f ? barretta(r.quota || 0, null, [2, 2]) : '<span class="muto piccolo">nessun volo</span>'}${(() => { const sp = Math.max(SIM.spinta(G, a, b).tot, SIM.spinta(G, b, a).tot); return sp > 0.01 ? `<span class="badge b-info" title="Effetto della pubblicità sull’attrattività">📣 +${Math.round(sp * 100)}%</span>` : ''; })()}</td>
       <td>${riv.length ? [...new Map(riv.map(x => [x.riv.id, x])).values()].map(x => `<span class="pallino" style="background:${x.riv.colore}" title="${h(x.riv.nome)}"></span>${h(x.riv.nome)}${x.guerra ? ' <span class="badge b-err">sconti</span>' : ''}`).join('<br>') : '<span class="muto">nessuno</span>'}</td>
@@ -930,6 +932,105 @@ async function caricaClassifica(el) {
   } catch { el.innerHTML = '<p class="muto">Classifica non disponibile.</p>'; }
 }
 
+/* ---------- Uso semplice: consigli, missioni, semafori, rotazione guidata, impostazioni ---------- */
+const AVANZATE = ['ricavi', 'hub', 'marketing', 'aeroporti', 'finanze', 'concorrenza'];
+function salute() { if (!UI._sal || UI._salT !== G.ora || UI._salG !== G) { UI._sal = SIM.salute(G); UI._salT = G.ora; UI._salG = G; } return UI._sal; }
+const semaforo = s => s ? `<span class="semaforo ${s.c}" data-tip="${h(s.t)}" role="img" aria-label="${h(s.t)}"></span>` : '';
+const COLORE_TXT = { verde: 'va bene', giallo: 'da guardare', rosso: 'problema', grigio: 'nessun dato', info: '' };
+function consigliHTML() {
+  const L = UI.consigli = SIM.consigli(G), a = G.auto || {};
+  const auto = `<p class="piccolo muto pilota">Pilota automatico: ${a.equipaggi ? 'assume gli equipaggi' : '<b>equipaggi a mano</b>'} · ${a.ispezioni ? 'programma le ispezioni' : '<b>ispezioni a mano</b>'} · <a href="#/impostazioni">cambia</a></p>`;
+  if (!L.length) return `<h2>Consigli del giorno</h2><p class="tutto-ok">✓ Tutto in ordine: nessuna rotta in perdita, aerei e turni coperti.</p>${auto}`;
+  return `<h2>Consigli del giorno</h2><ul class="consigli">${L.map((c, i) => `<li class="${c.c}"><span class="semaforo ${c.c === 'info' ? 'grigio' : c.c}" aria-hidden="true"></span><span class="cons-testo">${h(c.testo)}</span>
+    <span class="cons-az">${c.azioni.map((x, j) => `<button class="piccolo ${j === 0 ? 'primario' : ''}" data-az="consiglio" data-i="${i}" data-j="${j}">${h(x.et)}</button>`).join('')}</span></li>`).join('')}</ul>${auto}`;
+}
+function missioniHTML() {
+  const M = G.missioni || { attive: [], fatte: 0 };
+  return `<h2>Missioni</h2>${M.attive.length ? `<div class="missioni">${M.attive.map(x => {
+    const gg = Math.max(0, Math.ceil((x.scade - G.ora) / GIORNO));
+    return `<div class="missione"><div class="riga" style="margin:0"><b>${h(x.testo)}</b><span class="premio">${mln(x.cassa)}${x.rep ? ` · +${x.rep} rep` : ''}</span></div>
+      <div class="piccolo muto">${h(x.dett)} · ${gg === 1 ? 'scade domani' : `scade tra ${gg} giorni`}</div>${barretta(Math.min(1, x.v), x.serie != null && x.obiettivo && x.tipo !== 'pax' && x.tipo !== 'reputazione' && x.tipo !== 'rotta' ? `${x.serie}/${x.obiettivo} giorni` : pct(Math.min(1, x.v)), [2, 2])}</div>`; }).join('')}</div>` : '<p class="muto">Nuove missioni da domani.</p>'}
+    <p class="piccolo muto">Missioni completate: <b>${M.fatte}</b>. Ogni missione dà denaro e reputazione; se scade ne arriva un’altra.</p>`;
+}
+VISTE.impostazioni = () => {
+  const a = G.auto || {};
+  const riga = (k, t, d, on) => `<label class="interruttore"><input type="checkbox" data-az-change="${k}" ${on ? 'checked' : ''}><span class="lev" aria-hidden="true"></span><span><b>${t}</b><small>${d}</small></span></label>`;
+  return `<div class="testata"><h1>Impostazioni</h1><span class="sotto">Decidi cosa fa il gioco da solo e cosa resta a te</span></div>
+  <div class="griglia g2">
+    <div class="pannello"><h2>Pilota automatico</h2>
+      ${riga('auto-equipaggi', 'Assume gli equipaggi', 'Ogni notte, se qualche turno della settimana non ha equipaggio, assume quelli che mancano (assunzione normale, operativi in 10 giorni). Se la cassa non basta ti avvisa.', a.equipaggi)}
+      ${riga('auto-ispezioni', 'Programma le ispezioni', 'Ogni aereo va in ispezione di notte quando si avvicina alle 600 ore. Puoi ancora cambiarlo aereo per aereo dalla Flotta.', a.ispezioni)}
+      <p class="nota">Prezzi, rotte e acquisti restano sempre a te: il consigliere in Panoramica ti suggerisce cosa cambiare, con un tocco.</p></div>
+    <div class="pannello"><h2>Gioco</h2>
+      ${riga('opz-pausa', 'Pausa sugli eventi importanti', 'Il tempo si ferma quando arriva una notizia importante (guasti, eventi, guerre dei prezzi).', UI.pausaAuto)}
+      ${riga('opz-suoni', 'Suoni', 'Effetti sonori per voli, eventi e missioni.', UI.suoni)}</div>
+  </div>`;
+};
+
+// Rotazione guidata
+const MODELLI_ROT = [
+  ['navetta', 'Navetta', 'Base ⇄ una meta, più volte al giorno', '⇄'],
+  ['alterna', 'Due mete', 'Base ⇄ A, poi base ⇄ B, a turno', '⇆'],
+  ['triangolo', 'Triangolo', 'Base → A → B → base', '△'],
+  ['lungo', 'Lungo raggio', 'Base ⇄ una meta lontana, ogni giorno o a giorni alterni', '✈'],
+  ['weekend', 'Weekend diverso', 'Lun–Ven su una meta, sab–dom su un’altra', '7']
+];
+function apriGuida(aeId) {
+  const ae = G.aerei.find(a => a.id === aeId); if (!ae) return;
+  const m = MOD[ae.modello];
+  UI.guida = { aeId, tipo: m.lungo ? 'lungo' : 'navetta', base: G.basi.includes(ae.base) ? ae.base : G.basi[0], dest: [], giri: 0 };
+  modale({ titolo: `Rotazione guidata · ${ae.marche} (${m.nome})`, larga: true, corpo: '<div id="guida"></div>', piede: '<div id="guidaPiede" class="filtri" style="margin:0;justify-content:flex-end"></div>' });
+  disegnaGuida();
+}
+function destGuida(base, mod, tipo, escludi) {
+  const m = MOD[mod];
+  const l = Object.values(AP).filter(a => a.iata !== base && a.iata !== escludi).map(a => ({ d: a.iata, k: SIM.km(base, a.iata), aperta: !!G.rotte[SIM.chiave(base, a.iata)] }))
+    .filter(x => x.k <= m.autonomia && (tipo === 'lungo' ? x.k >= 2500 : x.k >= 150)).sort((a, b) => a.k - b.k);
+  return [['Rotte già aperte', l.filter(x => x.aperta)], ['Da aprire · 30.000 €', l.filter(x => !x.aperta)]].map(([t, q]) => q.length ? `<optgroup label="${t}">${q.map(x => `<option value="${x.d}">${x.d} · ${h(citta(x.d))} · ${num(x.k)} km</option>`).join('')}</optgroup>` : '').join('');
+}
+function disegnaGuida() {
+  const g = UI.guida, ae = G.aerei.find(a => a.id === g.aeId), m = MOD[ae.modello], box = $('#guida'); if (!box) return;
+  const due = ['alterna', 'triangolo', 'weekend'].includes(g.tipo);
+  const etX = g.tipo === 'weekend' ? 'Lun–Ven verso' : due ? 'Prima meta' : 'Meta', etY = g.tipo === 'weekend' ? 'Sab–Dom verso' : 'Seconda meta';
+  box.innerHTML = `<div class="modelli-rot">${MODELLI_ROT.filter(([t]) => !(m.lungo && t !== 'lungo' && t !== 'navetta')).map(([t, n, d, s]) => `<button type="button" data-az="g-tipo" data-t="${t}" class="${g.tipo === t ? 'on' : ''}" aria-pressed="${g.tipo === t}"><i aria-hidden="true">${s}</i><b>${n}</b><small>${d}</small></button>`).join('')}</div>
+    <div class="form mt">
+      ${G.basi.length > 1 ? `<label>Base di partenza<select id="gBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), g.base)}</select></label>` : ''}
+      <label>${etX}<select id="gX"><option value="">— scegli —</option>${destGuida(g.base, ae.modello, g.tipo, null)}</select></label>
+      ${due ? `<label>${etY}<select id="gY"><option value="">— scegli —</option>${destGuida(g.base, ae.modello, g.tipo, g.dest[0])}</select></label>` : ''}
+      ${g.tipo === 'lungo' || g.tipo === 'weekend' ? '' : `<label>Voli al giorno<select id="gGiri">${opzioni([[0, 'Automatico (secondo la domanda)'], [-1, 'Il massimo possibile'], ...[1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, `${n} ${g.tipo === 'triangolo' ? (n === 1 ? 'giro' : 'giri') : n === 1 ? 'andata e ritorno' : 'andate e ritorno'}`])], g.giri)}</select></label>`}
+    </div>
+    <div id="gRis" class="mt"></div>`;
+  if ($('#gX')) $('#gX').value = g.dest[0] || '';
+  if ($('#gY')) $('#gY').value = g.dest[1] || '';
+  calcolaGuida();
+}
+function calcolaGuida() {
+  const g = UI.guida, box = $('#gRis'), piede = $('#guidaPiede'); if (!box) return;
+  const due = ['alterna', 'triangolo', 'weekend'].includes(g.tipo);
+  piede.innerHTML = '<button data-az="chiudi">Annulla</button>';
+  if (!g.dest[0] || (due && !g.dest[1])) { box.innerHTML = `<p class="muto">Scegli ${due ? 'le due mete' : 'la meta'}: il gioco calcola orari, turni degli equipaggi, rotte da aprire e slot.</p>`; g.ris = null; return; }
+  const r = g.ris = SIM.rotazioneGuidata(G, g.aeId, { tipo: g.tipo, dest: g.dest, giri: +g.giri, base: g.base });
+  if (r.errore) { box.innerHTML = `<ul class="problemi"><li class="errore">✖ ${h(r.errore)}</li></ul>`; return; }
+  const ae = G.aerei.find(a => a.id === g.aeId), giorni = r.prog.giorni, gruppi = [];
+  giorni.forEach((x, i) => { const t = x.scali.length > 1 ? `${x.inizio} · ${x.scali.join(' → ')}` : `a terra a ${x.scali[0]}`; const u = gruppi.at(-1); if (u && u.t === t) u.a = i; else gruppi.push({ da: i, a: i, t }); });
+  const nomeG = x => x.da === x.a ? GS3[x.da] : `${GS3[x.da]}–${GS3[x.a]}`;
+  box.innerHTML = `<div class="guida-ris">
+      <p class="guida-descr">${h(r.descr)}</p>
+      <ul class="guida-giorni">${gruppi.map(x => `<li><b>${nomeG(x)}</b><span class="mono">${h(x.t)}</span></li>`).join('')}</ul>
+      <div class="sett-sintesi"><div><small>Voli a settimana</small><b>${r.voliSett}</b></div><div><small>Ore di volo al giorno</small><b>${num(r.oreSett / 7, 1)}</b></div><div><small>Da spendere ora</small><b>${eur(r.costo)}</b></div></div>
+      ${r.stime.length ? `<p class="piccolo"><b>Riempimento stimato a rotta avviata</b> (ai prezzi di riferimento):</p><div class="stime">${r.stime.map(s => `<button type="button" data-az="g-giri" data-n="${s.n}" class="${s.n === r.giri ? 'on' : ''} ${s.lf >= 0.72 ? 'buono' : s.lf >= 0.55 ? 'medio' : 'basso'}">${s.n}× <b>${pct(s.lf)}</b></button>`).join('')}</div><p class="nota">Sopra il 70% la rotta di solito guadagna; sotto il 55% voli mezzi vuoti. Tocca un numero per provarlo.</p>` : ''}
+      <ul class="problemi">
+        ${r.nuove.length ? `<li class="avviso">Apre ${r.nuove.length === 1 ? 'la rotta' : 'le rotte'} ${r.nuove.map(k => k.replace('-', '–')).join(', ')} · ${eur(r.nuove.length * 30000)}</li>` : ''}
+        ${r.slot.map(s => `<li class="avviso">Compra ${s.n} slot a ${s.i} · ${eur(s.costo)}</li>`).join('')}
+        ${r.W.map(w => `<li class="avviso">▲ ${h(w)}</li>`).join('')}
+        ${!r.nuove.length && !r.slot.length && !r.W.length ? '<li class="ok">✓ Rotte già aperte, slot sufficienti, turni nei limiti</li>' : ''}
+      </ul>
+      ${G.auto?.equipaggi ? '<p class="nota">Se mancano equipaggi il pilota automatico li assume stanotte.</p>' : ''}
+    </div>`;
+  const prog = ae.prog.giorni.some(x => x.scali.length > 1);
+  piede.innerHTML = `<button data-az="chiudi">Annulla</button><button data-az="g-editor">Modifica prima di salvare</button><button class="primario" data-az="g-applica" ${G.cassa < r.costo ? 'disabled' : ''}>${r.costo ? `Apri e salva · ${eur(r.costo)}` : 'Salva rotazione'}</button>${prog ? '<span class="piccolo muto" style="flex-basis:100%;text-align:right">Sostituisce il programma attuale dell’aereo</span>' : ''}`;
+}
+
 /* ---------- Render ---------- */
 function render() {
   if (!G) return;
@@ -937,6 +1038,7 @@ function render() {
   pagina = VISTE[v] ? v : 'panoramica';
   document.querySelectorAll('#menu a, .navbar-basso a').forEach(a => a.classList.toggle('attivo', a.dataset.v === pagina));
   $('#app').classList.remove('menu-aperto');
+  const av = $('#avanzate'); if (av && AVANZATE.includes(pagina)) av.open = true;
   $('#vista').innerHTML = VISTE[pagina]();
   if (pagina === 'panoramica') Mappa.monta($('#mappaPosto'));
   if (pagina === 'obiettivi') caricaClassifica($('#classifica'));
@@ -971,6 +1073,7 @@ const inputAttivo = () => { const a = document.activeElement; return a && /INPUT
 function gestisciNovita() {
   const nuove = G._nuove || []; G._nuove = [];
   let pausa = false;
+  for (const n of nuove) if (n.festa) { toast(n.testo, 'buona'); suono('buona'); }
   for (const n of nuove) if (n.imp) { toast(n.testo, n.tipo); suono(n.tipo === 'buona' ? 'buona' : n.tipo === 'cattiva' ? 'cattiva' : 'evento'); if (UI.pausaAuto) pausa = true; }
   if (pausa && vel) { vel = 0; aggiornaVel(); }
   if (G._salva) { G._salva = false; salva(); }
@@ -1123,6 +1226,32 @@ function aggiungiScalo(d) {
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  consiglio: el => {
+    const c = UI.consigli?.[+el.dataset.i], a = c?.azioni[+el.dataset.j]; if (!a) return;
+    if (a.vai) { location.hash = '#/' + a.vai; return; }
+    if (a.guida) { apriGuida(a.guida); return; }
+    if (esito(SIM.A[a.az](G, ...a.args))) { suono('click'); dopoAzione(); }
+  },
+  guida: el => apriGuida(el.dataset.id),
+  'g-tipo': el => { UI.guida.tipo = el.dataset.t; if (UI.guida.tipo === 'lungo' || UI.guida.tipo === 'navetta') UI.guida.dest.length = 1; UI.guida.giri = 0; disegnaGuida(); },
+  'g-giri': el => { UI.guida.giri = +el.dataset.n; const s = $('#gGiri'); if (s) s.value = el.dataset.n; calcolaGuida(); },
+  'g-applica': () => {
+    const g = UI.guida, r = g.ris; if (!r || !r.ok) return;
+    const ae = G.aerei.find(a => a.id === g.aeId);
+    const esA = SIM.A.applicaRotazione(G, g.aeId, r); if (esA.errore) return toast(esA.errore, 'err');
+    { chiudiModale(); suono('buona'); bozza = null; UI.aereoSel = g.aeId; if (pagina === 'programmazione') dopoAzione(); else { location.hash = '#/programmazione'; Mappa.disegnaRete(); } toast(`${ae.marche}: ${r.descr}`, 'buona'); }
+  },
+  'g-editor': () => {
+    const g = UI.guida, r = g.ris; if (!r || !r.ok) return;
+    const extra = r.costo; if (G.cassa < extra) return toast(`Servono ${eur(extra)} per aprire rotte e slot`, 'err');
+    for (const k of r.nuove) { const [a, b] = k.split('-'); SIM.A.apriRotta(G, a, b); }
+    for (const x of r.slot) SIM.A.compraSlot(G, x.i, x.n);
+    const ae = G.aerei.find(a => a.id === g.aeId), giorni = SIM.normalizza(ae.prog).giorni;
+    bozza = { aeId: ae.id, turn: r.prog.turn, giorni: r.prog.giorni.map(copiaGiorno), sel: SIM.giornoSett(G.ora), orig: JSON.stringify({ turn: ae.prog.turn, giorni }) };
+    UI.aereoSel = ae.id; chiudiModale();
+    if (pagina === 'programmazione') dopoAzione(); else { location.hash = '#/programmazione'; Mappa.disegnaRete(); }
+    toast('Rotazione caricata nell’editor: controlla e salva', 'buona');
+  },
   'menu-apri': () => $('#app').classList.add('menu-aperto'),
   'menu-chiudi': () => $('#app').classList.remove('menu-aperto'),
   conferma: () => { const f = CONFERMA; CONFERMA = null; chiudiModale(); if (f) f(); },
@@ -1238,6 +1367,13 @@ function mostraTip(testo, x, y, durata) {
 document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset.az === 'autocheck') return AZ.autocheck(el);
+  if (el.dataset.azChange === 'auto-equipaggi' || el.dataset.azChange === 'auto-ispezioni') { esito(SIM.A.impostaAuto(G, el.dataset.azChange.slice(5), el.checked)); return; }
+  if (el.dataset.azChange === 'opz-pausa') { UI.pausaAuto = el.checked; salvaOpz(); return; }
+  if (el.dataset.azChange === 'opz-suoni') { UI.suoni = el.checked; salvaOpz(); const b = $('#cSuoni'); if (b) b.textContent = UI.suoni ? '🔊' : '🔈'; return; }
+  if (el.id === 'gBase') { UI.guida.base = el.value; UI.guida.dest = []; disegnaGuida(); return; }
+  if (el.id === 'gX') { UI.guida.dest[0] = el.value; if (UI.guida.dest[1] === el.value) UI.guida.dest[1] = ''; if ($('#gY')) disegnaGuida(); else calcolaGuida(); return; }
+  if (el.id === 'gY') { UI.guida.dest[1] = el.value; calcolaGuida(); return; }
+  if (el.id === 'gGiri') { UI.guida.giri = +el.value; calcolaGuida(); return; }
   if (el.dataset.prezzo) { esito(SIM.A.prezzi(G, el.dataset.prezzo, { ['p' + el.dataset.cl]: +el.value })); return; }
   if (el.dataset.azChange === 'stipendio') { G.stipendio = +el.value; toast('Livello stipendi aggiornato'); render(); return; }
   if (el.dataset.azChange === 'servizio') { G.servizio = el.value; toast('Servizio di bordo aggiornato'); return; }

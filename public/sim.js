@@ -103,7 +103,7 @@ const SIM = (() => {
       leasing: modo === 'leasing' ? (opz.leasing || m.leasing) : 0, valore: modo === 'proprieta' ? (opz.prezzo || m.prezzo) : 0,
       ore: opz.ore || 0, cicli: Math.round((opz.ore || 0) * 0.8), oreDaCheck: opz.oreDaCheck ?? Math.round(rnd() * 150),
       stato: opz.consegna ? 'consegna' : 'attivo', fino: opz.consegna || 0, base, pos: base,
-      prog: settimanaVuota(base, MOD[modello].lungo ? 90 : MOD[modello].tipo === 'ATR' ? 30 : 40), lavori: null, autoCheck: true
+      prog: settimanaVuota(base, MOD[modello].lungo ? 90 : MOD[modello].tipo === 'ATR' ? 30 : 40), lavori: null, autoCheck: !G.auto || G.auto.ispezioni !== false
     };
     G.aerei.push(ae); return ae;
   }
@@ -265,7 +265,7 @@ const SIM = (() => {
     ae.prog = normalizza(prog);
     ae.base = prog.giorni[0].scali[0]; delete ae._piano;
     for (const k in (G.fissi || {})) if (k.startsWith(ae.id + '#')) delete G.fissi[k];
-    G._roster = null; rigeneraAereo(G, ae);
+    G._roster = null; rigeneraAereo(G, ae); autoAssumi(G);
     return v;
   }
 
@@ -750,6 +750,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
+    autoAssumi(G); controllaMissioni(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -893,6 +894,210 @@ const SIM = (() => {
     }
   }
 
+
+  /* ---------- Uso semplice: pilota automatico, rotazione guidata, consigli, semafori, missioni ---------- */
+  function autoAssumi(G) {
+    if (!G.auto || !G.auto.equipaggi) return;
+    const p = pianoAssunzioni(G); if (!p.length) return;
+    const costo = p.reduce((x, e) => x + costoAssunzione(e, false), 0);
+    if (G.cassa < costo) {
+      if (!G.auto.avvisato || G.ora - G.auto.avvisato > 3 * GIORNO) { G.auto.avvisato = G.ora; notizia(G, `Pilota automatico: servirebbero ${p.length} equipaggi (${eur(costo)}), ma la cassa non basta.`, 'cattiva'); }
+      return;
+    }
+    A.assumiMancanti(G, false);
+    notizia(G, `Pilota automatico: assunti ${p.length} equipaggi (${eur(costo)}), operativi tra 10 giorni.`, 'info');
+  }
+
+  // Somme degli ultimi giorni per rotta e per aereo
+  function statRecenti(G, giorni = 7) {
+    const ult = G.storico.slice(-giorni).filter(s => s.rotte), rotte = {}, aerei = {};
+    for (const s of ult) {
+      for (const [k, r] of Object.entries(s.rotte)) { const x = (rotte[k] ||= { voli: 0, pax: 0, posti: 0, ricavi: 0, costi: 0, canc: 0, giorni: 0 }); x.voli += r.voli; x.pax += r.pax; x.posti += r.posti; x.ricavi += r.ricavi; x.costi += r.costi; x.canc += r.canc || 0; x.giorni++; }
+      for (const [id, a] of Object.entries(s.aerei || {})) { const x = (aerei[id] ||= { ore: 0, ricavi: 0, costi: 0, giorni: 0 }); x.ore += a.ore; x.ricavi += a.ricavi; x.costi += a.costi; x.giorni++; }
+    }
+    return { rotte, aerei, n: ult.length };
+  }
+
+  // Semafori: verde (va bene), giallo (da guardare), rosso (problema), grigio (nessun dato)
+  function salute(G) {
+    const S = statRecenti(G), att = rotteInEsercizio(G), rotte = {}, aerei = {}, n = Math.max(1, S.n);
+    for (const k of Object.keys(G.rotte)) {
+      const x = S.rotte[k];
+      if (!att.has(k)) { rotte[k] = { c: 'grigio', t: 'Nessun aereo la vola' }; continue; }
+      if (!x || !x.voli) { rotte[k] = { c: 'grigio', t: 'Ancora nessun volo' }; continue; }
+      const lf = x.pax / Math.max(1, x.posti), utile = (x.ricavi - x.costi) / n, marg = (x.ricavi - x.costi) / Math.max(1, x.ricavi);
+      const [a, b] = k.split('-'), guerra = rivaliSu(G, a, b).some(z => z.guerra), pct = Math.round(lf * 100) + '%';
+      let s;
+      if (utile < 0) s = { c: 'rosso', t: `In perdita (${eur(utile)} al giorno), pieno al ${pct}` };
+      else if (guerra) s = { c: 'giallo', t: `Guerra dei prezzi in corso, pieno al ${pct}` };
+      else if (lf > 0.93) s = { c: 'giallo', t: `Sempre piena (${pct}): puoi alzare i prezzi` };
+      else if (lf < 0.6) s = { c: 'giallo', t: `Riempimento basso (${pct})` };
+      else if (marg < 0.08) s = { c: 'giallo', t: `Margine sottile (${Math.round(marg * 100)}%)` };
+      else s = { c: 'verde', t: `Utile ${eur(utile)} al giorno, pieno al ${pct}` };
+      rotte[k] = { ...s, lf, utile };
+    }
+    const scoperte = roster(G).scoperte;
+    for (const ae of flottaAttiva(G)) {
+      const x = S.aerei[ae.id], ore = mediaCiclo(ae).ore, scop = scoperte.filter(c => c.ae === ae.id).length;
+      let s;
+      if (ae.stato === 'consegna') s = { c: 'grigio', t: `In consegna il ${dataBreve(ae.fino)}` };
+      else if (!ore) s = { c: 'rosso', t: 'Fermo: nessuna rotazione' };
+      else if (scop) s = { c: 'rosso', t: `${scop} turni senza equipaggio: voli cancellati` };
+      else if (ae.lavori && ae.lavori.tipo !== 'check') s = { c: 'giallo', t: 'Lavori in corso' };
+      else if (x && x.giorni >= 2 && x.ricavi - x.costi < 0) s = { c: 'rosso', t: `In perdita (${eur((x.ricavi - x.costi) / x.giorni)} al giorno)` };
+      else if (!ae.autoCheck && ae.oreDaCheck > 450 && !ae.lavori) s = { c: 'giallo', t: 'Ispezione da programmare' };
+      else if (ore < 5) s = { c: 'giallo', t: `Poco usato (${ore.toFixed(1)} h al giorno)` };
+      else s = { c: 'verde', t: x && x.giorni ? `Utile ${eur((x.ricavi - x.costi) / x.giorni)} al giorno, ${ore.toFixed(1)} h di volo` : `${ore.toFixed(1)} h di volo al giorno` };
+      aerei[ae.id] = s;
+    }
+    return { rotte, aerei };
+  }
+  const dataBreve = t => { const d = loc(t); return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`; };
+
+  // Consigliere: pochi suggerimenti, ognuno con un'azione da un tocco
+  function consigli(G) {
+    const out = [], S = statRecenti(G), att = rotteInEsercizio(G);
+    const cop = copertura(G);
+    if (cop.scoperte) {
+      const st = A.stimaMancanti(G, true);
+      out.push({ p: 100, c: 'rosso', testo: `${cop.scoperte} turni senza equipaggio: quei voli verranno cancellati.` + (st.n ? '' : ' Gli equipaggi che servono sono già in formazione: puoi farli arrivare prima.'),
+        azioni: st.n ? [{ et: `Assumi urgente (${eur(st.costo)})`, az: 'assumiMancanti', args: [true] }] : A.stimaAnticipo(G).n ? [{ et: `Anticipa a 2 giorni (${eur(A.stimaAnticipo(G).costo)})`, az: 'anticipaFormazione', args: [] }] : [{ et: 'Vedi equipaggi', vai: 'personale' }] });
+    }
+    for (const ae of flottaAttiva(G)) if (ae.stato === 'attivo' && !mediaCiclo(ae).ore)
+      out.push({ p: 90, c: 'rosso', testo: `${ae.marche} (${MOD[ae.modello].nome}) è fermo a terra: dagli una rotazione.`, azioni: [{ et: 'Rotazione guidata', guida: ae.id }] });
+    const fissi = Object.values(costiFissi(G)).reduce((x, y) => x + y, 0), gg = G.cassa / Math.max(1, fissi);
+    if (gg < 7) out.push({ p: 85, c: gg < 3 ? 'rosso' : 'giallo', testo: G.cassa < 0 ? `Cassa in rosso (${eur(G.cassa)}): sotto i −2 M€ le banche iniziano il conto alla rovescia.` : `Cassa bassa: copre ${Math.max(0, Math.floor(gg))} giorni di costi fissi.`, azioni: [{ et: 'Finanze', vai: 'finanze' }] });
+    for (const ae of flottaAttiva(G)) if (!ae.autoCheck && !ae.lavori && ae.stato === 'attivo' && ae.oreDaCheck > 450)
+      out.push({ p: 80, c: ae.oreDaCheck > 550 ? 'rosso' : 'giallo', testo: `${ae.marche}: ${Math.round(ae.oreDaCheck)} ore dall’ultima ispezione (limite 600).`, azioni: [{ et: 'Programma ispezione', az: 'ispezione', args: [ae.id] }] });
+    const prezzi = [];
+    for (const [k, x] of Object.entries(S.rotte)) {
+      const r = G.rotte[k]; if (!r || !att.has(k) || x.voli < 4 || (r.ritocco && G.ora - r.ritocco < 3 * GIORNO)) continue;
+      const lf = x.pax / Math.max(1, x.posti), utile = (x.ricavi - x.costi) / Math.max(1, x.giorni), [a, b] = k.split('-'), nome = `${a}–${b}`;
+      const guerra = rivaliSu(G, a, b).find(z => z.guerra);
+      if (guerra && lf < 0.8) prezzi.push({ p: 70, c: 'giallo', testo: `${guerra.riv.nome} ha tagliato i prezzi su ${nome}: sei pieno al ${Math.round(lf * 100)}%.`, azioni: [{ et: 'Rispondi −10%', az: 'ritocca', args: [k, 0.9] }] });
+      else if (lf > 0.93) prezzi.push({ p: 55 + lf * 10, c: 'giallo', testo: `${nome} vola quasi sempre piena (${Math.round(lf * 100)}%): stai lasciando soldi sul tavolo.`, azioni: [{ et: 'Alza del 10%', az: 'ritocca', args: [k, 1.1] }] });
+      else if (lf < 0.55 && utile < 0) prezzi.push({ p: 60 + (0.55 - lf) * 20, c: 'rosso', testo: `${nome} è in perdita e piena solo al ${Math.round(lf * 100)}%: prezzi più bassi riempiono gli aerei.`, azioni: [{ et: 'Abbassa del 10%', az: 'ritocca', args: [k, 0.9] }, { et: 'Rotte', vai: 'rotte' }] });
+      else if (utile < 0) prezzi.push({ p: 50, c: 'giallo', testo: `${nome} perde ${eur(-utile)} al giorno pur essendo piena al ${Math.round(lf * 100)}%: aereo troppo grande o costi alti.`, azioni: [{ et: 'Alza del 10%', az: 'ritocca', args: [k, 1.1] }, { et: 'Rotte', vai: 'rotte' }] });
+    }
+    out.push(...prezzi.sort((x, y) => y.p - x.p).slice(0, 3));
+    if (!out.length && !att.size) out.push({ p: 10, c: 'info', testo: 'Nessun aereo vola ancora: crea la prima rotazione con la procedura guidata.', azioni: flottaAttiva(G)[0] ? [{ et: 'Rotazione guidata', guida: flottaAttiva(G)[0].id }] : [] });
+    return out.sort((x, y) => y.p - x.p).slice(0, 5);
+  }
+
+  // Rotazione guidata: da un modello (navetta, due mete alternate, triangolo, lungo raggio, weekend diverso)
+  // trova orari validi, inserisce i cambi equipaggio e dice quali rotte e slot servono.
+  // orari di partenza da 05:30 a 14:30, provati a partire da quelli più comodi (attorno alle 7)
+  const CANDIDATI_ORA = Array.from({ length: 19 }, (_, i) => 330 + i * 30).sort((x, y) => Math.abs(x - 420) - Math.abs(y - 420) || x - y).map(oraDaMin);
+  function rotazioneGuidata(G, aeId, { tipo = 'navetta', dest = [], giri = 0, base } = {}) {
+    const ae = G.aerei.find(a => a.id === aeId); if (!ae) return err('Aereo inesistente');
+    const m = MOD[ae.modello], b = G.basi.includes(base) ? base : G.basi.includes(ae.base) ? ae.base : G.basi[0], [X, Y] = dest;
+    if (!X || X === b) return err('Scegli la destinazione');
+    if (['alterna', 'triangolo', 'weekend'].includes(tipo) && (!Y || Y === b || Y === X)) return err('Scegli la seconda destinazione (diversa dalla prima)');
+    const tratte = tipo === 'triangolo' ? [[b, X], [X, Y], [Y, b]] : [[b, X], ...(Y && tipo !== 'navetta' && tipo !== 'lungo' ? [[b, Y]] : [])];
+    for (const [p, q] of tratte) if (km(p, q) > m.autonomia) return err(`${p}–${q} è lunga ${km(p, q)} km: oltre l’autonomia del ${m.nome} (${m.autonomia} km)`);
+    const nuove = [...new Set(tratte.map(([p, q]) => chiave(p, q)))].filter(k => !G.rotte[k]);
+    const T = { ...G, rotte: { ...G.rotte } };
+    for (const k of nuove) { const [p, q] = k.split('-'), d = km(p, q), ref = prezzoRif(d); T.rotte[k] = { aperta: G.ora, pY: ref, pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) }; }
+    // turnaround comodo (meno ritardi a catena) e una notte di almeno 8 ore in base per le ispezioni
+    const turn = Math.max(ae.prog.turn || 0, m.lungo ? 90 : m.tipo === 'ATR' ? 35 : 40);
+    const giorno = (dests, n) => { const s = [b]; for (let i = 0; i < n; i++) { const d = dests[i % dests.length]; if (Array.isArray(d)) s.push(...d, b); else s.push(d, b); } return s; };
+    const fatale = e => !/non è aperta|aeroporto a slot/.test(e);
+    const prova = giorni => {
+      let prog = { turn, giorni: giorni.map(([inizio, scali]) => ({ inizio, scali, attese: [], cambi: [] })) };
+      prog = sistemaTurni(T, ae, prog);
+      const v = validaProgramma(T, ae, prog);
+      return v.E.some(fatale) || (v.piano.legs.length && v.piano.sostaBase < 480) ? null : { prog, v };
+    };
+    const durGiro = dests => dests.reduce((x, d) => x + (Array.isArray(d) ? durata(km(b, d[0]), ae.modello) + durata(km(d[0], d[1]), ae.modello) + durata(km(d[1], b), ae.modello) + 3 * turn : 2 * (durata(km(b, d), ae.modello) + turn)), 0) / dests.length;
+    const maxGiri = dests => clamp(Math.floor(1100 / durGiro(dests)) + 1, 1, 10);
+    // giri "automatici": i più numerosi con un riempimento stimato di almeno il 72% (a rotta avviata)
+    const posti = CL.reduce((x, c) => x + (ae.cab[c] || 0), 0);
+    const mieFreq = (p, q) => { let f = 0; for (const x of flottaAttiva(G)) if (x.id !== ae.id) for (const l of mediaCiclo(x).tratte) if (l.da === p && l.a === q) f += l.peso; return f; };
+    const riemp = (tr, n) => { let s = 0; for (const [p, q, f] of tr) { const fq = f * n, tot = mieFreq(p, q) + fq, r = T.rotte[chiave(p, q)]; const am = analisiMercato(T, p, q, G.ora + GIORNO, tot, r.pY || prezzoRif(km(p, q))); s += Math.min(1, am.pax / Math.max(0.3, am.maturita) * (fq / tot) / (fq * posti)); } return s / tr.length; };
+    const trDi = dests => dests.flatMap(d => Array.isArray(d) ? [[b, d[0], 1], [d[0], d[1], 1], [d[1], b, 1]] : [[b, d, 1 / dests.length], [d, b, 1 / dests.length]]);
+    const giriAuto = dests => { const tr = trDi(dests); for (let n = maxGiri(dests); n > 1; n--) if (riemp(tr, n) >= 0.72) return n; return 1; };
+    // la migliore settimana uniforme per una lista di mete (nFisso: >0 giri esatti, 0 automatico, -1 massimo)
+    const uniforme = (dests, nFisso) => {
+      for (let n = nFisso > 0 ? nFisso : nFisso < 0 ? maxGiri(dests) : giriAuto(dests); n >= 1; n--) {
+        for (const ora of CANDIDATI_ORA) { const r = prova(GIORNI_SETT.map(() => [ora, giorno(dests, n)])); if (r) return { ...r, n, ora }; }
+        if (nFisso > 0) break;
+      }
+      return null;
+    };
+    const ar = n => `${n} ${n === 1 ? 'volo' : 'voli'} di andata e ritorno`;
+    let best = null, descr = '';
+    if (tipo === 'navetta') { best = uniforme([X], giri); descr = best && `${ar(best.n)} ${b}–${X} al giorno, partenza alle ${best.ora}`; }
+    else if (tipo === 'alterna') { best = uniforme([X, Y], giri); descr = best && `${ar(best.n)} al giorno alternando ${X} e ${Y}, partenza alle ${best.ora}`; }
+    else if (tipo === 'triangolo') { best = uniforme([[X, Y]], giri); descr = best && `${best.n} ${best.n === 1 ? 'giro' : 'giri'} ${b}→${X}→${Y}→${b} al giorno, partenza alle ${best.ora}`; }
+    else if (tipo === 'weekend') {
+      const fer = uniforme([X], giri), fest = uniforme([Y], giri);
+      if (fer && fest) for (let a = fer.n; a >= 1 && !best; a--) for (let c = fest.n; c >= 1 && !best; c--) for (const o1 of CANDIDATI_ORA) {
+        const r = prova(GIORNI_SETT.map((_, i) => i < 5 ? [o1, giorno([X], a)] : [fest.ora, giorno([Y], c)]));
+        if (r) { best = r; descr = `Lun–Ven ${ar(a)} ${b}–${X}; Sab–Dom ${ar(c)} ${b}–${Y}`; break; }
+      }
+    } else if (tipo === 'lungo') {
+      best = uniforme([X], 1); if (best) descr = `Un andata e ritorno ${b}–${X} ogni giorno, partenza alle ${best.ora}`;
+      else {
+        for (const o1 of CANDIDATI_ORA) { for (const o2 of CANDIDATI_ORA.concat(Array.from({ length: 16 }, (_, i) => oraDaMin(900 + i * 30)))) {
+          const r = prova(GIORNI_SETT.map((_, i) => i === 6 ? [o1, [b]] : i % 2 === 0 ? [o1, [b, X]] : [o2, [X, b]]));
+          if (r) { best = r; descr = `Tre andata e ritorno a settimana ${b}–${X} (andata Lun, Mer, Ven alle ${o1}; ritorno il giorno dopo alle ${o2}), la domenica a riposo`; break; }
+        } if (best) break; }
+      }
+    } else return err('Modello di rotazione sconosciuto');
+    if (!best) return err('Non trovo orari validi per questa combinazione: prova un’altra destinazione o meno giri al giorno');
+    const slot = [], dep = partenzePerScalo(T, { id: ae.id, prog: best.prog });
+    for (const [i, c] of Object.entries(dep)) if (AP[i].slot && c > (G.slot[i] || 0)) slot.push({ i, n: c - (G.slot[i] || 0), costo: (c - (G.slot[i] || 0)) * AP[i].slotPrezzo });
+    const costo = nuove.length * 30000 + slot.reduce((x, s) => x + s.costo, 0);
+    const dd = tipo === 'navetta' ? [X] : tipo === 'alterna' ? [X, Y] : tipo === 'triangolo' ? [[X, Y]] : null;
+    const nMax = dd ? Math.max(best.n || 1, (uniforme(dd, -1) || {}).n || 1) : 0; // solo i giri che stanno davvero nella giornata
+    const stime = dd ? Array.from({ length: nMax }, (_, i) => ({ n: i + 1, lf: riemp(trDi(dd), i + 1) })) : [];
+    return { ok: true, prog: best.prog, descr, giri: best.n || 0, stime, nuove, slot, costo, W: best.v.W, voliSett: best.v.voliSett, oreSett: best.v.oreSett };
+  }
+
+  // Missioni brevi: tre alla volta, premio in denaro e reputazione
+  const TIPI_MISSIONE = ['rotta', 'pax', 'puntuale', 'riempimento', 'utile', 'reputazione'];
+  function nuovaMissione(G) {
+    const M = G.missioni, ult = G.storico.slice(-7), nd = Math.max(1, ult.length);
+    const paxG = ult.reduce((s, x) => s + x.pax, 0) / nd, ricG = ult.reduce((s, x) => s + x.ricavi, 0) / nd, utG = ult.reduce((s, x) => s + x.utile, 0) / nd;
+    const premio = clamp(Math.round(ricG * 0.5 / 5000) * 5000, 25000, 1.5e6);
+    const usati = M.attive.map(x => x.tipo);
+    let tipi = TIPI_MISSIONE.filter(t => !usati.includes(t) && t !== M.ultimo);
+    if (!paxG) tipi = tipi.filter(t => t === 'rotta' || t === 'reputazione');
+    if (G.reputazione >= 90) tipi = tipi.filter(t => t !== 'reputazione');
+    if (!tipi.length) return;
+    const tipo = !rotteInEsercizio(G).size && tipi.includes('rotta') ? 'rotta' : tipi[Math.floor(rnd() * tipi.length)];
+    const x = { id: 'm' + (G.seq++), tipo, inizio: G.ora, v: 0, serie: 0 };
+    switch (tipo) {
+      case 'rotta': Object.assign(x, { testo: 'Fai volare una rotta nuova', dett: 'Una rotta che oggi non voli, entro 14 giorni', scade: G.ora + 14 * GIORNO, cassa: premio, rep: 2, prima: [...rotteInEsercizio(G)] }); break;
+      case 'pax': { const n = Math.max(300, Math.round(paxG * 7 * 1.08 / 50) * 50); Object.assign(x, { testo: `Trasporta ${n.toLocaleString('it-IT')} passeggeri`, dett: 'In 7 giorni', scade: G.ora + 7 * GIORNO, cassa: premio, rep: 2, da: G.stat.pax, obiettivo: n }); break; }
+      case 'puntuale': Object.assign(x, { testo: 'Cinque giorni impeccabili', dett: 'Nessuna cancellazione e almeno 90% di voli puntuali, 5 giorni di fila', scade: G.ora + 10 * GIORNO, cassa: premio, rep: 4, obiettivo: 5 }); break;
+      case 'riempimento': Object.assign(x, { testo: 'Aerei pieni', dett: 'Riempimento medio oltre l’80% per 3 giorni di fila', scade: G.ora + 10 * GIORNO, cassa: premio, rep: 2, obiettivo: 3 }); break;
+      case 'utile': { const s = utG > 0 ? Math.max(5000, Math.round(utG * 1.15 / 1000) * 1000) : 1000; Object.assign(x, { testo: `Utile sopra ${eur(s)}`, dett: 'Per 3 giorni di fila', scade: G.ora + 10 * GIORNO, cassa: premio, rep: 2, soglia: s, obiettivo: 3 }); break; }
+      case 'reputazione': { const t = Math.min(95, Math.ceil(G.reputazione) + 4); Object.assign(x, { testo: `Reputazione a ${t}`, dett: 'Entro 21 giorni: puntualità, servizio e niente cancellazioni', scade: G.ora + 21 * GIORNO, cassa: premio, rep: 0, da: G.reputazione, obiettivo: t }); break; }
+    }
+    M.attive.push(x);
+  }
+  function controllaMissioni(G) {
+    const M = (G.missioni ||= { attive: [], fatte: 0 }), s = G.storico.at(-1);
+    for (const x of M.attive.slice()) {
+      if (s) switch (x.tipo) {
+        case 'rotta': x.v = [...rotteInEsercizio(G)].some(k => !x.prima.includes(k) && s.rotte && s.rotte[k] && s.rotte[k].voli) ? 1 : 0; break;
+        case 'pax': x.v = (G.stat.pax - x.da) / x.obiettivo; break;
+        case 'puntuale': x.serie = s.voli && !s.canc && s.puntuali / s.voli >= 0.9 ? x.serie + 1 : 0; x.v = x.serie / x.obiettivo; break;
+        case 'riempimento': x.serie = s.posti && s.pax / s.posti >= 0.8 ? x.serie + 1 : 0; x.v = x.serie / x.obiettivo; break;
+        case 'utile': x.serie = s.utile >= x.soglia ? x.serie + 1 : 0; x.v = x.serie / x.obiettivo; break;
+        case 'reputazione': x.v = clamp((G.reputazione - x.da) / (x.obiettivo - x.da), 0, 1); break;
+      }
+      if (x.v >= 1) {
+        G.cassa += x.cassa; G.reputazione = Math.min(100, G.reputazione + x.rep); M.fatte++; M.ultimo = x.tipo;
+        M.attive = M.attive.filter(y => y !== x);
+        const n = { t: G.ora, testo: `Missione compiuta: ${x.testo}! Premio ${eur(x.cassa)}${x.rep ? ` e +${x.rep} di reputazione` : ''}.`, tipo: 'buona', festa: true };
+        G.notizie.unshift(n); (G._nuove ||= []).push(n);
+      } else if (G.ora >= x.scade) { M.attive = M.attive.filter(y => y !== x); M.ultimo = x.tipo; notizia(G, `Missione scaduta: ${x.testo}.`, 'info'); }
+    }
+    while (M.attive.length < 3) { const n = M.attive.length; nuovaMissione(G); if (M.attive.length === n) break; }
+  }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -903,7 +1108,8 @@ const SIM = (() => {
       fuso: FUSO, inizio, ora: inizio, cassa: S.cassa || 0, debiti: [], reputazione: 50, morale: 65, stipendio: 1, servizio: 'standard', carburante: 0.8,
       basi: [], hub: [], slot: {}, aerei: [], rotte: {}, equipaggi: [], fissi: {}, seqEq: {}, voli: [], registro: [], storico: [], oggi: nuovoGiorno(),
       notizie: [], eventi: [], rivali: D.RIVALI.map(r => ({ id: r.id, nome: r.nome, colore: r.colore, hub: r.hub, rep: r.rep, prezzo: r.prezzo, rotte: Object.fromEntries(Object.entries(r.rotte).map(([k, f]) => [k, { freq: f, prezzo: r.prezzo }])) })),
-      traguardi: {}, stat: { pax: 0, voli: 0, utile: 0 }, mercato: [], numeri: {}, campagne: [], seq: 1, seqMarche: 0, seqVolo: 101, fallimento: 0, esito: null, genFino: 0, giorniUtile: 0
+      traguardi: {}, stat: { pax: 0, voli: 0, utile: 0 }, mercato: [], numeri: {}, campagne: [], seq: 1, seqMarche: 0, seqVolo: 101, fallimento: 0, esito: null, genFino: 0, giorniUtile: 0,
+      auto: { equipaggi: true, ispezioni: true }, missioni: { attive: [], fatte: 0 }
     };
     if (S.preset === 'crisi') presetCrisi(G);
     else {
@@ -913,7 +1119,7 @@ const SIM = (() => {
       for (const [tipo, n, piloti, cabina] of S.equipaggi) for (let q = 0; q < n; q++) nuovoEquipaggio(G, { base: b, tipo, piloti, cabina });
       if (S.slot) Object.assign(G.slot, S.slot);
     }
-    aggiornaMercato(G);
+    aggiornaMercato(G); controllaMissioni(G);
     for (let i = 0; i <= 2; i++) generaGiorno(G, giornoDopo(mezzanotte(G.ora), i));
     vendite(G);
     notizia(G, `Benvenuto in ${G.nome}! ${S.descr}`, 'buona');
@@ -952,6 +1158,7 @@ const SIM = (() => {
     G.campagne ||= [];
     if (G.oggi && G.oggi.costi && G.oggi.costi.marketing == null) G.oggi.costi.marketing = 0;
     G.fuso ??= AP[G.basi[0]].fuso; impostaFuso(G);
+    G.auto ||= { equipaggi: true, ispezioni: true }; if (!G.missioni) { G.missioni = { attive: [], fatte: 0 }; controllaMissioni(G); }
     if (G.v >= VERSIONE) return G;
     if (!G.v || G.v < 2) migraV2(G);
     if (G.v < 3) migraV3(G);
@@ -1167,6 +1374,35 @@ const SIM = (() => {
       return ok('Campagna avviata');
     },
     fermaCampagna(G, id) { const c = (G.campagne || []).find(x => x.id === id); if (!c || !c.attiva) return err('Campagna non attiva'); c.attiva = false; c.fine = G.ora; return ok('Campagna fermata: l’effetto svanirà gradualmente'); },
+    ritocca(G, k, f) {
+      const r = G.rotte[k]; if (!r) return err('Rotta non aperta');
+      for (const c of CL) r['p' + c] = clamp(Math.round(r['p' + c] * f), 10, 5000);
+      r.ritocco = G.ora; vendite(G); return ok(`Prezzi ${k.replace('-', '–')} ${f > 1 ? 'alzati' : 'abbassati'} del ${Math.round(Math.abs(f - 1) * 100)}%`);
+    },
+    // gli equipaggi in formazione arrivano in 2 giorni tramite agenzia (si paga la differenza)
+    stimaAnticipo(G) { const l = G.equipaggi.filter(e => e.stato === 'formazione' && e.pronto > G.ora + 2 * GIORNO && !/riqualif|trasfer/.test(e.motivo || '')); return { n: l.length, costo: l.reduce((x, e) => x + costoAssunzione(e, true) - costoAssunzione(e, false), 0), lista: l }; },
+    anticipaFormazione(G) {
+      const st = A.stimaAnticipo(G); if (!st.n) return err('Nessun equipaggio da anticipare');
+      if (G.cassa < st.costo) return err(`Servono ${eur(st.costo)}`);
+      paga(G, st.costo, 'personale'); for (const e of st.lista) { e.pronto = G.ora + 2 * GIORNO; e.motivo = 'formazione accelerata tramite agenzia'; }
+      return ok(`${st.n} equipaggi operativi tra 2 giorni (${eur(st.costo)})`);
+    },
+    ispezione(G, id) { const ae = G.aerei.find(a => a.id === id); if (!ae || ae.lavori) return err('L’aereo ha già lavori programmati'); pianificaCheck(G, id); return ok('Ispezione programmata nella prossima sosta lunga'); },
+    impostaAuto(G, chiave, val) {
+      G.auto ||= {}; G.auto[chiave] = !!val;
+      if (chiave === 'ispezioni') for (const ae of G.aerei) ae.autoCheck = !!val;
+      if (chiave === 'equipaggi' && val) autoAssumi(G);
+      return ok(val ? 'Pilota automatico acceso' : 'Pilota automatico spento');
+    },
+    // applica la rotazione guidata: apre le rotte, compra gli slot che servono e salva il programma
+    applicaRotazione(G, aeId, r) {
+      if (G.cassa < r.costo) return err(`Servono ${eur(r.costo)} in cassa`);
+      const ae = G.aerei.find(a => a.id === aeId); if (!ae) return err('Aereo inesistente');
+      for (const k of r.nuove) if (!G.rotte[k]) { const [a, b] = k.split('-'); A.apriRotta(G, a, b); }
+      for (const x of r.slot) A.compraSlot(G, x.i, x.n);
+      const v = salvaProgramma(G, aeId, r.prog);
+      return v.E.length ? err(v.E[0]) : ok('Rotazione salvata: i voli partono dai prossimi giorni');
+    },
     premio(G) { const costo = totPersonale(G) * 1500; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); paga(G, costo, 'personale'); G.morale = Math.min(100, G.morale + 12); return ok(`Premio distribuito (${eur(costo)}): morale +12`); },
     limitePrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return Math.max(0, Math.round((0.6 * f + 3e6 + Math.max(0, G.stat.utile) * 0.3 - debitoTot(G)) / 1e5) * 1e5); },
     tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return 0.05 + 0.04 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.02 : 0); },
@@ -1181,6 +1417,6 @@ const SIM = (() => {
     }
   };
 
-  return { roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;
