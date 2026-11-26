@@ -13,7 +13,7 @@ const ICONE = {
 const AREE = [
   { id: 'oggi', nome: 'Oggi', pagine: [['panoramica', 'Panoramica'], ['voli', 'Voli'], ['giornale', 'Giornale'], ['guida', 'Guida']] },
   { id: 'rete', nome: 'Rete', pagine: [['programmazione', 'Programmazione'], ['rotte', 'Rotte e prezzi'], ['hub', 'Hub'], ['aeroporti', 'Aeroporti e slot']], extra: ['rotta', 'aeroporto'] },
-  { id: 'commerciale', nome: 'Commerciale', pagine: [['prodotto', 'Bordo e tariffe'], ['mercati', 'Mercati e ricerche'], ['accordi', 'Accordi'], ['marketing', 'Marketing'], ['ricavi', 'Ricavi'], ['concorrenza', 'Concorrenza']] },
+  { id: 'commerciale', nome: 'Commerciale', pagine: [['prodotto', 'Bordo e tariffe'], ['fedelta', 'Fedeltà'], ['mercati', 'Mercati e ricerche'], ['accordi', 'Accordi'], ['marketing', 'Marketing'], ['ricavi', 'Ricavi'], ['concorrenza', 'Concorrenza']] },
   { id: 'flotta', nome: 'Flotta', pagine: [['flotta', 'Aerei'], ['mercato', 'Mercato aerei'], ['personale', 'Equipaggi']], extra: ['aereo'] },
   { id: 'azienda', nome: 'Azienda', pagine: [['direzione', 'Direzione'], ['finanze', 'Finanze e borsa'], ['sostenibilita', 'Sostenibilità'], ['obiettivi', 'Obiettivi'], ['impostazioni', 'Impostazioni']] }
 ];
@@ -22,7 +22,7 @@ function badgeArea(id) {
   if (!G) return 0;
   if (id === 'azienda') return riunioneAperta();
   if (id === 'oggi') return G.dilemma ? 1 : 0;
-  if (id === 'flotta') return SIM.copertura(G).scoperte ? 1 : 0;
+  if (id === 'flotta') return (SIM.copertura(G).scoperte ? 1 : 0) + (G.trattativa ? 1 : 0);
   return 0;
 }
 function schedeArea() {
