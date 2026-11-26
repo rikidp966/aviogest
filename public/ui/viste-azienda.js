@@ -59,7 +59,7 @@ VISTE.personale = () => {
   for (const b of G.basi) {
     const eqB = G.equipaggi.filter(e => e.base === b), scop = r.scoperte.filter(c => c.base === b);
     s += `<div class="pannello"><div class="testata" style="margin-bottom:8px"><h2 style="margin:0">Base di ${h(citta(b))} (${b})${G.hub.includes(b) ? ' · hub' : ''}</h2><span class="sotto">${eqB.length} equipaggi${scop.length ? ` · <span class="neg">${scop.length} turni scoperti</span>` : ''}</span></div>
-      ${eqB.length ? `<div class="tab-wrap"><table><thead><tr><th>Equipaggio</th><th>Abilitazione</th><th>Composizione</th><th class="num">Turni</th><th>Ore di volo</th><th class="num">Paga/giorno</th><th>Stato</th><th></th></tr></thead><tbody>
+      ${eqB.length ? `${schedeEquipaggi(eqB, r)}<div class="tab-wrap solo-desktop"><table><thead><tr><th>Equipaggio</th><th>Abilitazione</th><th>Composizione</th><th class="num">Turni</th><th>Ore di volo</th><th class="num">Paga/giorno</th><th>Stato</th><th></th></tr></thead><tbody>
       ${eqB.map(e => { const x = r.carico.get(e.id) || { turni: 0, min: 0 };
         return `<tr><td><b class="mono">${h(e.nome)}</b> <span class="muto">cpt. ${h(e.capo)}</span></td><td>${e.tipo}</td><td>${e.piloti} piloti + ${e.cabina} cabina</td><td class="num">${x.turni}/${SIM.MAX_TURNI}</td>
         <td>${barretta(x.min / 60 / SIM.MAX_ORE, num(x.min / 60, 1) + ' h', [0.9, 1])}</td><td class="num">${eur(SIM.pagaEquipaggio(e) * G.stipendio)}</td>
@@ -77,6 +77,13 @@ VISTE.personale = () => {
   </div>`;
   return s;
 };
+function schedeEquipaggi(eqB, r) {
+  return `<div class="schede solo-mobile">${eqB.map(e => { const x = r.carico.get(e.id) || { turni: 0, min: 0 };
+    return `<div class="scheda"><div class="riga"><b class="mono">${h(e.nome)}</b>${e.stato === 'attivo' ? (x.turni ? '<span class="badge b-ok">In servizio</span>' : '<span class="badge">Riserva</span>') : `<span class="badge b-info">Dal ${fmtGiorno(e.pronto)}</span>`}</div>
+      <div class="piccolo muto">cpt. ${h(e.capo)} · ${e.tipo} · ${e.piloti} piloti + ${e.cabina} cabina · ${eur(SIM.pagaEquipaggio(e) * G.stipendio)} al giorno</div>
+      <div class="piccolo">${x.turni}/${SIM.MAX_TURNI} turni</div>${barretta(x.min / 60 / SIM.MAX_ORE, num(x.min / 60, 1) + ' h di volo', [0.9, 1])}
+      <div class="azioni">${G.basi.length > 1 ? `<button class="piccolo" data-az="eq-trasferisci" data-id="${e.id}">Trasferisci</button>` : ''}<button class="piccolo" data-az="eq-riqualifica" data-id="${e.id}">Riqualifica</button><button class="piccolo pericolo" data-az="eq-licenzia" data-id="${e.id}">Licenzia</button></div></div>`; }).join('')}</div>`;
+}
 // Settimana degli equipaggi di una base: una riga per equipaggio, una colonna per giorno
 function settimanaEquipaggi(b, eqB, r, scop) {
   const giorno = c => Math.floor((c.inizio % (7 * 1440)) / 1440), ora = c => SIM.oraDaMin((c.inizio + 60) % 1440);
@@ -84,7 +91,9 @@ function settimanaEquipaggi(b, eqB, r, scop) {
   const righe = eqB.filter(e => e.stato === 'attivo').map(e => [e.nome, (r.carico.get(e.id)?.catene || [])]);
   if (scop.length) righe.push(['Scoperti', scop]);
   if (!righe.some(([, l]) => l.length)) return '';
-  return `<h3 class="mt" style="font-size:15px">Turni della settimana</h3><div class="tab-wrap"><table class="roster"><thead><tr><th></th>${GS3.map(g => `<th>${g}</th>`).join('')}</tr></thead><tbody>
+  const perGiorno = GS3.map((g, d) => ({ g: GS[d], l: righe.flatMap(([n, l]) => l.filter(c => giorno(c) === d).map(c => ({ n, c }))).sort((x, y) => (x.c.inizio % 1440) - (y.c.inizio % 1440)) }));
+  const mobile = `<div class="solo-mobile giorni-turni">${perGiorno.map(x => `<details ${x.l.some(y => y.n === 'Scoperti') ? 'open' : ''}><summary><b>${x.g}</b><span class="muto piccolo">${x.l.length} turni${x.l.some(y => y.n === 'Scoperti') ? ' · <span class="neg">scoperti</span>' : ''}</span></summary>${x.l.length ? x.l.map(y => `<div class="turno-riga ${y.n === 'Scoperti' ? 'scoperto' : ''}"><b class="mono">${h(y.n)}</b>${cella(y.c)}</div>`).join('') : '<p class="muto piccolo">Nessun turno</p>'}</details>`).join('')}</div>`;
+  return `<h3 class="mt" style="font-size:15px">Turni della settimana</h3>${mobile}<div class="tab-wrap solo-desktop"><table class="roster"><thead><tr><th></th>${GS3.map(g => `<th>${g}</th>`).join('')}</tr></thead><tbody>
     ${righe.map(([n, l]) => `<tr class="${n === 'Scoperti' ? 'scoperto' : ''}"><td class="mono"><b>${h(n)}</b></td>${GS3.map((_, d) => `<td>${l.filter(c => giorno(c) === d).map(cella).join('') || '<span class="muto">riposo</span>'}</td>`).join('')}</tr>`).join('')}
   </tbody></table></div>`;
 }

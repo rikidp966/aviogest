@@ -441,7 +441,9 @@ button, a, input, select { touch-action: manipulation; }
   .sett-sintesi > div:last-child { grid-column: 1 / -1; }
   #pDest { flex: 1 1 100%; }
   .solo-mobile { display: flex !important; }
-  table.solo-desktop { display: none !important; }
+  table.solo-desktop, div.solo-desktop { display: none !important; }
+  .giorni-turni.solo-mobile { display: block !important; }
+  #cSalti.solo-mobile { display: inline-flex !important; }
   .tabellone { padding: 6px; }
   .menu-iniziale { padding-top: calc(28px + env(safe-area-inset-top)); }
   .scenario { grid-template-columns: minmax(0, 1fr) 96px; }
@@ -642,3 +644,18 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
 .carta.rivale h3 { margin: 14px 0 6px; font: 700 13px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .08em; color: var(--testo-2); }
 .carta.rivale.alleato { border-color: var(--ok); }
 .carta.rivale .filtri { margin: 6px 0; align-items: center; }
+
+/* ---------- Telefono: zone da toccare più grandi, turni giorno per giorno ---------- */
+.giorni-turni details { border-bottom: 1px solid var(--bordo); }
+.giorni-turni summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 2px; cursor: pointer; min-height: 44px; }
+.turno-riga { display: flex; gap: 10px; align-items: center; padding: 6px 2px; }
+.turno-riga.scoperto { background: var(--err-bg); border-radius: 6px; padding: 6px; }
+.turno-riga .turno-chip { margin: 0; white-space: normal; }
+@media (max-width: 800px) {
+  a.link-rotta { display: inline-block; padding: 12px 4px; margin: -12px -4px; }
+  .carta a.titolo.link-rotta { padding: 10px 4px; margin: -10px -4px; }
+  input[type="checkbox"]:not(.interruttore input) { width: 22px; height: 22px; vertical-align: middle; }
+  label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .schede-area a { min-height: 44px; }
+  details > summary { min-height: 40px; display: flex; align-items: center; }
+}
