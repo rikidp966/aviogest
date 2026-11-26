@@ -385,6 +385,8 @@ const SIM = (() => {
     const dow = [1.12, 1.0, 0.92, 0.92, 1.0, 1.15, 0.88][d.getUTCDay()];
     // i viaggi lunghi sono meno frequenti; tra paesi diversi e lontani ancora meno
     const k = km(da, a); let dist = k <= 1500 ? 1 : (1500 / k) ** 0.5; if (A.paese !== B.paese && k > 2500) dist *= 0.85;
+    // tratte medie (400–4000 km): meno viaggiatori, altrimenti ai prezzi di riferimento gli aerei sarebbero sempre pieni
+    dist *= k <= 400 ? 1 : k <= 1500 ? (400 / k) ** 0.6 : k < 4000 ? 0.452 + 0.548 * (k - 1500) / 2500 : 1;
     let ev = 1;
     for (const e of G.eventi) if (e.tipo === 'domanda' && (e.citta === A.citta || e.citta === B.citta) && e.inizio < giorno + GIORNO && e.fine > giorno) ev *= e.fattore;
     return 0.25 * Math.sqrt(A.pop * B.pop) * stag * dow * ev * dist * economiaDi(G, da, a) * fattoreRotta(G, da, a);
@@ -413,7 +415,7 @@ const SIM = (() => {
     const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq); tot += at; return { ...x, at }; });
     rivali.forEach(x => x.quota = x.at / tot);
     const quota = attrP / tot, maturita = maturitaRotta(G, da, a, giorno);
-    const pax = mercato * quota * clamp((ref / pYe) ** 0.8, 0.3, 1.8) * maturita * (1 + 0.3 * sp.tot);
+    const pax = mercato * quota * clamp((ref / pYe) ** (1.5 * (Sg ? Sg.elasticita || 1 : 1)), 0.15, 1.8) * maturita * (1 + 0.3 * sp.tot);
     const quote = quoteClassi(da, a);
     if (Sg || M.fedelta) { const f = M.fedelta ? 1.12 : 1; quote.J *= (Sg ? Sg.quote.J : 1) * f; quote.W *= (Sg ? Sg.quote.W : 1) * f; quote.Y = Math.max(0.05, 1 - quote.J - quote.W); }
     if (sp.bus) { quote.J *= 1 + 1.5 * sp.bus; quote.W *= 1 + 1.5 * sp.bus; quote.Y = 1 - quote.J - quote.W; }
@@ -951,7 +953,7 @@ const SIM = (() => {
       let s;
       if (utile < 0) s = { c: 'rosso', t: `In perdita (${eur(utile)} al giorno), pieno al ${pct}` };
       else if (guerra) s = { c: 'giallo', t: `Guerra dei prezzi in corso, pieno al ${pct}` };
-      else if (lf > 0.93) s = { c: 'giallo', t: `Sempre piena (${pct}): puoi alzare i prezzi` };
+      else if (lf > 0.92) s = { c: 'giallo', t: `Sempre piena (${pct}): puoi alzare i prezzi` };
       else if (lf < 0.6) s = { c: 'giallo', t: `Riempimento basso (${pct})` };
       else if (marg < 0.08) s = { c: 'giallo', t: `Margine sottile (${Math.round(marg * 100)}%)` };
       else s = { c: 'verde', t: `Utile ${eur(utile)} al giorno, pieno al ${pct}` };
@@ -992,12 +994,12 @@ const SIM = (() => {
       out.push({ p: 80, c: ae.oreDaCheck > 550 ? 'rosso' : 'giallo', testo: `${ae.marche}: ${Math.round(ae.oreDaCheck)} ore dall’ultima ispezione (limite 600).`, azioni: [{ et: 'Programma ispezione', az: 'ispezione', args: [ae.id] }] });
     const prezzi = [];
     for (const [k, x] of Object.entries(S.rotte)) {
-      const r = G.rotte[k]; if (!r || !att.has(k) || x.voli < 4 || (r.ritocco && G.ora - r.ritocco < 3 * GIORNO)) continue;
+      const r = G.rotte[k]; if (!r || !att.has(k) || x.voli < 4 || (r.ritocco && G.ora - r.ritocco < 7 * GIORNO)) continue;
       const lf = x.pax / Math.max(1, x.posti), utile = (x.ricavi - x.costi) / Math.max(1, x.giorni), [a, b] = k.split('-'), nome = `${a}–${b}`;
-      const guerra = rivaliSu(G, a, b).find(z => z.guerra);
+      const guerra = rivaliSu(G, a, b).find(z => z.guerra), caro = r.pY > prezzoRif(km(a, b)) * 1.15;
       if (guerra && lf < 0.8) prezzi.push({ p: 70, c: 'giallo', testo: `${guerra.riv.nome} ha tagliato i prezzi su ${nome}: sei pieno al ${Math.round(lf * 100)}%.`, azioni: [{ et: 'Rispondi −10%', az: 'ritocca', args: [k, 0.9] }] });
-      else if (lf > 0.93) prezzi.push({ p: 55 + lf * 10, c: 'giallo', testo: `${nome} vola quasi sempre piena (${Math.round(lf * 100)}%): stai lasciando soldi sul tavolo.`, azioni: [{ et: 'Alza del 10%', az: 'ritocca', args: [k, 1.1] }] });
-      else if (lf < 0.55 && utile < 0) prezzi.push({ p: 60 + (0.55 - lf) * 20, c: 'rosso', testo: `${nome} è in perdita e piena solo al ${Math.round(lf * 100)}%: prezzi più bassi riempiono gli aerei.`, azioni: [{ et: 'Abbassa del 10%', az: 'ritocca', args: [k, 0.9] }, { et: 'Rotte', vai: 'rotte' }] });
+      else if (lf > 0.9) prezzi.push({ p: 55 + lf * 10, c: 'giallo', testo: `${nome} vola quasi sempre piena (${Math.round(lf * 100)}%): stai lasciando soldi sul tavolo.`, azioni: [{ et: 'Alza del 10%', az: 'ritocca', args: [k, 1.1] }] });
+      else if ((lf < 0.55 && utile < 0) || (lf < 0.65 && caro)) prezzi.push({ p: 60 + (0.55 - lf) * 20, c: 'rosso', testo: `${nome} ${utile < 0 ? 'è in perdita e' : 'ha prezzi alti ed è'} piena solo al ${Math.round(lf * 100)}%: prezzi più bassi riempiono gli aerei.`, azioni: [{ et: 'Abbassa del 10%', az: 'ritocca', args: [k, 0.9] }, { et: 'Rotte', vai: 'rotte' }] });
       else if (utile < 0) prezzi.push({ p: 50, c: 'giallo', testo: `${nome} perde ${eur(-utile)} al giorno pur essendo piena al ${Math.round(lf * 100)}%: aereo troppo grande o costi alti.`, azioni: [{ et: 'Alza del 10%', az: 'ritocca', args: [k, 1.1] }, { et: 'Rotte', vai: 'rotte' }] });
     }
     out.push(...prezzi.sort((x, y) => y.p - x.p).slice(0, 3));
