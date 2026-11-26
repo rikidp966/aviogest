@@ -4,6 +4,15 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  'accetta-offerta': el => { if (esito(SIM.A.accettaOfferta(G, el.dataset.id))) render(); },
+  'rifiuta-offerta': el => { esito(SIM.A.rifiutaOfferta(G, el.dataset.id)); render(); },
+  recedi: el => { const a = G.accordi.find(x => x.id === el.dataset.id); conferma(`Recedere dall’accordo con ${a.nome}?`, `Paghi una penale di ${eur(a.penale)} e perdi gli sconti o i contributi.`, 'Recedi', () => { esito(SIM.A.recediAccordo(G, el.dataset.id)); render(); }); },
+  'chiedi-offerta': el => { const i = el.dataset.i || $('#offAeroporto')?.value; if (esito(SIM.A.chiediOfferta(G, i))) { chiudiModale(); location.hash = '#/accordi'; render(); } },
+  'apri-aeroporto': el => apriAeroporto(el.dataset.i),
+  'annulla-ordine': el => { const ae = G.aerei.find(a => a.id === el.dataset.id); conferma(`Annullare l’ordine di ${ae.marche}?`, ae.acconto ? `Perdi l’acconto di ${eur(ae.acconto)}.` : 'L’aereo non verrà consegnato.', 'Annulla ordine', () => { esito(SIM.A.annullaOrdine(G, el.dataset.id)); dopoAzione(); }); },
+  'stagione-ed': el => { UI.stagioneAlt = el.dataset.alt === '1'; bozza = null; render(); },
+  'copia-stagione': el => { esito(SIM.A.copiaStagione(G, el.dataset.id)); bozza = null; render(); },
+  'togli-stagione': el => conferma('Un solo programma tutto l’anno?', 'Il programma dell’altra stagione viene cancellato.', 'Conferma', () => { esito(SIM.A.togliStagione(G, el.dataset.id)); UI.stagioneAlt = false; bozza = null; render(); }),
   alleanza: el => { if (esito(SIM.A.alleanza(G, el.dataset.r, el.dataset.l))) { suono('buona'); } render(); },
   'chiudi-alleanza': el => { const R = G.rivali.find(x => x.id === el.dataset.r); conferma(`Chiudere l’accordo con ${R.nome}?`, 'Tornerete concorrenti a tutti gli effetti, le joint venture finiscono e per 60 giorni non accetteranno nuove proposte. Reputazione −1.', 'Chiudi accordo', () => { esito(SIM.A.chiudiAlleanza(G, el.dataset.r)); render(); }); },
   jv: el => { const k = $('#jv-' + el.dataset.r)?.value; if (esito(SIM.A.jointVenture(G, el.dataset.r, k))) render(); },
@@ -101,7 +110,7 @@ const AZ = {
   'compra-usato': el => { const o = G.mercato.find(x => x.id === el.dataset.id); formAcquisto({ mod: o.mod, usato: o.id }); },
   'conferma-acquisto': el => {
     const modo = $('#acqModo').value, base = $('#acqBase').value, cab = leggiCab();
-    const r = el.dataset.usato ? SIM.A.compraUsato(G, el.dataset.usato, modo, base, cab) : SIM.A.compraNuovo(G, el.dataset.mod, modo, base, cab);
+    const r = el.dataset.usato ? SIM.A.compraUsato(G, el.dataset.usato, modo, base, cab) : SIM.A.compraNuovo(G, el.dataset.mod, modo, base, cab, +($('#acqAttesa')?.value || 1));
     if (esito(r)) { chiudiModale(); render(); }
   },
   'sel-aereo': el => { UI.aereoSel = el.dataset.id; bozza = null; if (pagina !== 'programmazione') location.hash = '#/programmazione'; else render(); },
@@ -123,7 +132,7 @@ const AZ = {
   },
   'p-annulla': () => { bozza = null; render(); },
   'p-salva': () => {
-    const r = SIM.salvaProgramma(G, bozza.aeId, { turn: bozza.turn, giorni: bozza.giorni.map(copiaGiorno) });
+    const pr = { turn: bozza.turn, giorni: bozza.giorni.map(copiaGiorno) }, r = bozza.altra ? SIM.A.salvaStagione(G, bozza.aeId, pr) : SIM.salvaProgramma(G, bozza.aeId, pr);
     if (r.E.length) return toast(r.E[0], 'err');
     toast(`Programma salvato: ${r.voliSett} voli a settimana in vendita${SIM.copertura(G).scoperte ? ' · alcuni turni non hanno ancora un equipaggio' : ''}`, 'buona'); suono('click'); bozza = null; dopoAzione();
   },

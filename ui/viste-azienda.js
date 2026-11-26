@@ -4,15 +4,15 @@
 VISTE.mercato = () => `
   <div class="testata"><h1>Mercato aerei</h1><span class="sotto">Cassa ${eur(G.cassa)}</span><span class="spazio"></span>
     <div class="segmenti"><button data-az="tab-mercato" data-t="nuovi" class="${UI.mercatoTab === 'nuovi' ? 'on' : ''}">Nuovi dal costruttore</button><button data-az="tab-mercato" data-t="usati" class="${UI.mercatoTab === 'usati' ? 'on' : ''}">Usati (${G.mercato.length})</button></div></div>
-  <div class="carte">${UI.mercatoTab === 'nuovi' ? Object.entries(MOD).map(([k, m]) => cartaModello(k, m)).join('') : G.mercato.length ? G.mercato.map(cartaUsato).join('') : '<p class="vuoto">Nessuna offerta questa settimana. Il mercato si aggiorna ogni lunedì.</p>'}</div>
-  <p class="nota">Al momento dell’ordine scegli la base di consegna e la configurazione della cabina (Business, Premium Economy, Economy). Nuovi: consegna in 30 giorni. Usati: 5 giorni, 9 se rifai la cabina. Il leasing richiede un deposito di 30 giorni di canone.</p>`;
+  <div class="carte">${UI.mercatoTab === 'nuovi' ? Object.entries(MOD).filter(([k]) => SIM.annunciato(G, k)).map(([k, m]) => cartaModello(k, m)).join('') : G.mercato.length ? G.mercato.map(cartaUsato).join('') : '<p class="vuoto">Nessuna offerta questa settimana. Il mercato si aggiorna ogni lunedì.</p>'}</div>
+  <p class="nota">Al momento dell’ordine scegli la base di consegna e la configurazione della cabina (Business, Premium Economy, Economy). Nuovi: consegna in 30 giorni, oppure ordina con 12 o 24 mesi di anticipo per uno sconto. I modelli di nuova generazione si possono ordinare prima che entrino in servizio. Usati: 5 giorni, 9 se rifai la cabina. Il leasing richiede un deposito di 30 giorni di canone.</p>`;
 function avvisoPiloti(mod) {
   const t = MOD[mod].tipo, ha = G.equipaggi.some(e => e.tipo === t);
   return ha ? '' : `<p class="piccolo" style="color:var(--warn)">▲ Nessun equipaggio abilitato ${t}: assumilo o riqualificane uno in Personale.</p>`;
 }
 function cartaModello(k, m) {
   const costoOra = m.consumo * G.carburante + m.manut;
-  return `<div class="pannello carta"><div class="titolo">${m.nome}</div><div class="muto">${m.spazio} unità di cabina · abilitazione ${m.tipo}</div>
+  return `<div class="pannello carta"><div class="titolo">${m.nome}</div>${infoModello(k)}<div class="muto">${m.spazio} unità di cabina · abilitazione ${m.tipo}</div>
     <div class="riga"><span>Esempio</span><span>${chipCab(SIM.cabinaStandard(k, 'mista'))}</span></div>
     <div class="riga"><span>Autonomia · velocità</span><span>${num(m.autonomia)} km · ${m.vel} km/h</span></div>
     <div class="riga"><span>Carburante + manutenzione</span><span>${eur(costoOra)}/h</span></div>
@@ -37,6 +37,7 @@ function formAcquisto({ mod, usato }) {
   configuratore({
     titolo: `${o ? 'Acquista' : 'Ordina'} ${m.nome}${o ? ` usato di ${o.eta} anni` : ''}`, mod, cab,
     info: `<div class="form" style="margin-bottom:14px"><label>Contratto<select id="acqModo">${opzioni([['leasing', `Leasing · ${eur(leasing)}/giorno, deposito ${eur(leasing * 30)}`], ['proprieta', `Acquisto · ${eur(prezzo)}`]], 'leasing')}</select></label>
+      ${o ? '' : `<label class="pieno">Consegna<select id="acqAttesa">${opzioni(opzioniConsegna(mod), SIM.disponibile(G, mod) ? 1 : 1)}</select><small class="muto">Ordinando con anticipo paghi subito un acconto del 10% (o il deposito del leasing) e il resto alla consegna.</small></label>`}
       <label>Base di consegna<select id="acqBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), G.basi[0])}</select></label></div>
       ${o ? `<p class="piccolo">Cabina attuale: ${chipCab(o.cab)} — se la cambi: ${eur(60000)} + ${eur(800)} a posto e 4 giorni in più.</p>` : ''}`,
     piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-conferma-cab data-az="conferma-acquisto" data-mod="${mod}" ${o ? `data-usato="${o.id}"` : ''}>Conferma</button>`

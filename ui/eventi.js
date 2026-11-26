@@ -25,6 +25,8 @@ function mostraTip(testo, x, y, durata) {
 document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset.az === 'autocheck') return AZ.autocheck(el);
+  if (el.id === 'edizione') { UI.edizione = +el.value; render(); return; }
+  if (el.id === 'safQuota') { esito(SIM.A.saf(G, +el.value)); render(); return; }
   if (el.id === 'importaFile' && el.files[0]) { importaPartita(el.files[0]); return; }
   if (el.dataset.bordo) { esito(SIM.A.bordo(G, el.dataset.c, el.dataset.bordo, +el.value)); render(); return; }
   if (el.dataset.tar) { esito(SIM.A.tariffe(G, { [el.dataset.tar]: +el.value })); render(); return; }
