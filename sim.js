@@ -394,7 +394,7 @@ const SIM = (() => {
   function rivaliSu(G, da, a) {
     const kc = chiaveCitta(da, a), out = [];
     for (const r of G.rivali) for (const [k, x] of Object.entries(r.rotte)) {
-      const [p, q] = k.split('-'); if (chiaveCitta(p, q) === kc) out.push({ riv: r, k, freq: x.freq, prezzo: x.prezzo, guerra: !!x.guerraFino });
+      const [p, q] = k.split('-'); if (chiaveCitta(p, q) === kc && !(G.jv && G.jv.some(j => j.riv === r.id && j.k === k))) out.push({ riv: r, k, freq: x.freq, prezzo: x.prezzo, guerra: !!x.guerraFino });
     }
     return out;
   }
@@ -407,12 +407,16 @@ const SIM = (() => {
     if (opz.stima && !studiato(G, da, a)) mercato /= fattoreRotta(G, da, a);
     if (Sg) mercato *= Sg.domanda * (Sg.corto && k < 900 ? Sg.corto : Sg.lungo && k > 2500 ? Sg.lungo : 1);
     if (M.sito) mercato *= 1.03;
+    if (G.alleanze) for (const [rid, al] of Object.entries(G.alleanze)) if (al.livello === 'codeshare') {
+      const P = G.rivali.find(x => x.id === rid), cA = AP[da].citta, cB = AP[a].citta;
+      if (P && Object.keys(P.rotte).some(k => k.split('-').some(i => AP[i].citta === cA || AP[i].citta === cB))) { mercato *= 1.06; break; }
+    }
     const val = G.bordo ? valoreProdotto(G, k) : null, pYe = val ? pY / val.Y : pY;
     const sp = opz.senzaMarketing ? { tot: 0, bus: 0 } : spinta(G, da, a, opz.escludi, opz.extra);
     const riv = rivaliSu(G, da, a), altri = altriMezzi(da, a, k);
     const attrP = freq > 0 ? repF(G.reputazione) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) : 0;
     let tot = attrP + altri;
-    const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq); tot += at; return { ...x, at }; });
+    const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq) * (x.riv.alleato ? 1.05 : 1); tot += at; return { ...x, at }; });
     rivali.forEach(x => x.quota = x.at / tot);
     const quota = attrP / tot, maturita = maturitaRotta(G, da, a, giorno);
     const pax = mercato * quota * clamp((ref / pYe) ** (1.5 * (Sg ? Sg.elasticita || 1 : 1)), 0.15, 1.8) * maturita * (1 + 0.3 * sp.tot);
@@ -629,9 +633,10 @@ const SIM = (() => {
       equipaggi: (v.fineTurno ? (v.piloti + cabMin(ae)) * 150 : 0) + (v.posizionato ? (v.piloti + cabMin(ae)) * 250 : 0),
       soste: v.sostaFuori ? Math.round(m.peso * 15) : 0
     };
-    const costi = Object.values(c).reduce((s, x) => s + x, 0), ricaviC = {}; let ricavi = 0;
+    let costi = Object.values(c).reduce((s, x) => s + x, 0); const ricaviC = {}; let ricavi = 0;
     for (const x of CL) { ricaviC[x] = Math.round(v.inc[x]); ricavi += ricaviC[x]; }
     ricavi += bordo.extra; G.oggi.ricaviExtra = (G.oggi.ricaviExtra || 0) + bordo.extra;
+    if (jvSu(G, chiave(v.da, v.a))) { c.alleanze = Math.round(ricavi * QUOTA_JV); costi += c.alleanze; }
     v.stato = 'arrivato'; ae.ore += h; ae.cicli++; ae.oreDaCheck += h; ae.inVolo = null;
     G.cassa += ricavi - costi;
     const o = G.oggi;
@@ -742,6 +747,7 @@ const SIM = (() => {
     c.hub = G.hub.length * D.HUB.giornaliero;
     c.sede = (1000 + 300 * flottaAttiva(G).length) * (G.strategia ? STR(G).sede : 1) * ((G.mod || {}).tagli ? 0.85 : 1);
     if (G.bordo) c.prodotto = analisiProdotto(G).fisso;
+    if (G.alleanze) c.alleanze = costoAlleanze(G);
     if ((G.mod || {}).fedelta) c.prodotto = (c.prodotto || 0) + D.PROGETTI.fedelta.quotidiano;
     for (const d of G.debiti) c.interessi += d.capitale * d.tasso / 365;
     for (const x in c) c[x] = Math.round(c[x]);
@@ -830,15 +836,17 @@ const SIM = (() => {
       if (!pst) continue;
       const lf = pax / pst, [a, b] = k.split('-'), riv = rivaliSu(G, a, b), q = r.quota || 0;
       if (!riv.length && q > 0.4 && lf > 0.8 && G.ora - r.aperta > 30 * GIORNO && G.ora - G.inizio > 45 * GIORNO && rnd() < 0.2) {
-        if (!G.mosseRivali.some(m => m.k === k && !m.fatta)) G.mosseRivali.push({ riv: pick(G.rivali).id, k, freq: 2 + Math.floor(rnd() * 2), t: G.ora + (14 + Math.floor(rnd() * 14)) * GIORNO, attacco: true });
+        if (!G.mosseRivali.some(m => m.k === k && !m.fatta)) if (G.rivali.some(X => !alleato(G, X.id))) G.mosseRivali.push({ riv: pick(G.rivali.filter(X => !alleato(G, X.id))).id, k, freq: 2 + Math.floor(rnd() * 2), t: G.ora + (14 + Math.floor(rnd() * 14)) * GIORNO, attacco: true });
       } else for (const x of riv) {
+        if (alleato(G, x.riv.id)) continue;
         const am = analisiMercato(G, a, b, mezzanotte(G.ora), 1, r.pY), qr = am.rivali.find(y => y.riv.id === x.riv.id)?.quota || 0;
         if (qr < 0.12 && q > 0.3 && rnd() < 0.35) { delete x.riv.rotte[x.k]; notizia(G, `${x.riv.nome} abbandona ${x.k.replace('-', '–')}: la rotta è tua.`, 'buona', true); }
         else if (q > 0.45 && !x.guerra && rnd() < 0.12) { const rr = x.riv.rotte[x.k]; rr.prezzo *= 0.8; rr.guerraFino = G.ora + 21 * GIORNO; notizia(G, `Guerra dei prezzi: ${x.riv.nome} taglia del 20% le tariffe su ${x.k.replace('-', '–')} per tre settimane.`, 'cattiva', true); }
       }
     }
     for (const R of G.rivali) for (const rr of Object.values(R.rotte)) if (rr.guerraFino && G.ora > rr.guerraFino) { rr.prezzo = R.prezzo; delete rr.guerraFino; }
-    if (rnd() < 0.25) {
+    settimanaSaluteRivali(G);
+    if (rnd() < 0.25 && G.rivali.length) {
       const R = pick(G.rivali), dest = pick(Object.keys(AP).filter(i => i !== R.hub && km(R.hub, i) < (R.raggio || 2000)));
       const k = chiave(R.hub, dest); if (!R.rotte[k] && !G.mosseRivali.some(m => m.k === k && !m.fatta)) G.mosseRivali.push({ riv: R.id, k, freq: 2, t: G.ora + (10 + Math.floor(rnd() * 20)) * GIORNO });
     }
@@ -1136,6 +1144,7 @@ const SIM = (() => {
     G.direzione ||= { dirigenti: Object.fromEntries(Object.entries(D.DIRIGENTI).map(([k, x]) => [k, { nome: x.nomi[0], umore: 60, n: 0 }])), riunione: null, verbale: [], progetti: [] };
     G.cda ||= { fiducia: 60, semestre: null, storico: [] };
     G.borsa ||= { quotata: false };
+    initRivali(G);
     if (!G.cda.semestre) nuovoSemestre(G);
   }
   const STR = G => D.STRATEGIE[G.strategia || 'tradizionale'];
@@ -1510,6 +1519,172 @@ const SIM = (() => {
   }
   function controllaDilemma(G) { if (G.dilemma && G.ora >= G.dilemma.scade) { const n = G.dilemma.opzioni.length - 1; scegliDilemma(G, n); notizia(G, 'Non hai deciso in tempo: è stata scelta l’ultima opzione.', 'cattiva'); } nuovoDilemma(G); }
 
+  /* ---------- Concorrenti: salute, alleanze, acquisizioni, fusioni tra rivali ---------- */
+  const LIVELLI_ALLEANZA = {
+    pace: { nome: 'Non belligeranza', quotidiano: 300, avvio: 0, soglia: 45, descr: 'Niente guerre dei prezzi né attacchi alle rotte tra voi.' },
+    codeshare: { nome: 'Codeshare', quotidiano: 1500, avvio: 50000, soglia: 55, descr: 'Come la non belligeranza, in più vi vendete a vicenda i voli: +6% di domanda sulle tue rotte che toccano le città del partner.' }
+  };
+  const QUOTA_JV = 0.15, AVVIO_JV = 100000;
+  const NUOVI_RIVALI = [
+    { nome: 'Zefiro Airways', colore: '#d9480f', prezzo: 0.85 }, { nome: 'Atlantica', colore: '#1864ab', prezzo: 1.05 },
+    { nome: 'Boreal Wings', colore: '#5f3dc4', prezzo: 0.95 }, { nome: 'Sirocco Air', colore: '#e8590c', prezzo: 0.8 }, { nome: 'Aurora Sky', colore: '#0c8599', prezzo: 1.15 }
+  ];
+  const alleanza = (G, rid) => (G.alleanze || {})[rid];
+  const alleato = (G, rid) => !!alleanza(G, rid);
+  const jvSu = (G, k) => (G.jv || []).find(j => j.k === k);
+  function initRivali(G) {
+    G.alleanze ||= {}; G.jv ||= []; G.acquisizioni ||= [];
+    for (const R of G.rivali) { R.forza ??= clamp(55 + (R.rep - 55) * 0.6, 25, 80); }
+  }
+  // aerei che servono a un rivale per volare la sua rete (stima per l'acquisizione)
+  function flottaRivale(R) {
+    const ore = {};
+    for (const [k, x] of Object.entries(R.rotte)) {
+      const [a, b] = k.split('-'), d = km(a, b), mod = d > 6000 ? 'B789' : d > 4500 ? 'A21X' : d < 700 && x.freq >= 3 ? 'A319' : 'A320';
+      ore[mod] = (ore[mod] || 0) + x.freq * 2 * (durata(d, mod) + (MOD[mod].lungo ? 90 : 45));
+    }
+    return Object.entries(ore).map(([mod, min]) => ({ mod, n: Math.max(1, Math.round(min / (MOD[mod].lungo ? 20 * 60 : 15 * 60))) }));
+  }
+  function valoreRivale(G, R) {
+    const fl = flottaRivale(R), aerei = fl.reduce((s, x) => s + x.n * MOD[x.mod].prezzo * 0.5, 0), rotte = Object.keys(R.rotte).length;
+    const base = aerei + rotte * 2.5e6 + (AP[R.hub].slot ? 8 * AP[R.hub].slotPrezzo : 0);
+    return Math.round(base * (0.55 + R.forza / 110) * (0.8 + R.rep / 250) / 1e5) * 1e5;
+  }
+  const prezzoAcquisto = (G, R) => Math.round(valoreRivale(G, R) * (R.crisi ? 0.85 : R.forza > 60 ? 1.35 : 1.15) / 1e5) * 1e5;
+  // la salute dei rivali cambia ogni settimana: economia, guerre dei prezzi, concorrenza con te
+  function settimanaSaluteRivali(G) {
+    initRivali(G);
+    const pick = a => a[Math.floor(rnd() * a.length)];
+    for (const R of G.rivali.slice()) {
+      let f = R.forza;
+      f += (55 - f) * 0.04 + ((G.economia?.[AP[R.hub].continente] || 1) - 1) * 20 + (rnd() - 0.5) * 6;
+      for (const [k, x] of Object.entries(R.rotte)) {
+        if (x.guerraFino) f -= 1.5;
+        const r = G.rotte[k]; if (r && (r.quota || 0) > 0.5) f -= 1.2;
+      }
+      if (Object.keys(R.rotte).length < 3) f -= 3;
+      R.forza = clamp(f, 0, 95);
+      if (R.forza < 18 && !R.crisi) { R.crisi = true; notizia(G, `${R.nome} è in difficoltà finanziarie: la compagnia è in vendita a prezzo scontato (pagina Concorrenza).`, 'info', true); }
+      if (R.crisi && R.forza > 30) { R.crisi = false; notizia(G, `${R.nome} si è ripresa e non è più in vendita a sconto.`, 'info'); }
+      if (R.forza < 6) {
+        const altri = G.rivali.filter(x => x !== R && x.forza > 40);
+        if (altri.length && rnd() < 0.6) { const B = altri.sort((x, y) => y.forza - x.forza)[0]; fondiRivali(G, B, R); notizia(G, `${B.nome} compra ${R.nome}: le sue rotte passano a ${B.nome}.`, 'cattiva', true); }
+        else { rimuoviRivale(G, R); notizia(G, `${R.nome} fallisce: ${Object.keys(R.rotte).length} rotte restano senza il suo servizio. I suoi passeggeri cercano un’altra compagnia.`, 'buona', true); }
+      }
+    }
+    // alleanze tra rivali
+    const liberi = G.rivali.filter(R => !R.alleato);
+    if (liberi.length >= 2 && rnd() < 0.04) {
+      const A1 = pick(liberi), A2 = pick(liberi.filter(x => x !== A1)); A1.alleato = A2.id; A2.alleato = A1.id;
+      notizia(G, `${A1.nome} e ${A2.nome} firmano un’alleanza: saranno più forti sulle loro reti.`, 'cattiva', true);
+    }
+    // nuovi concorrenti se il mercato si svuota
+    if (G.rivali.length < 4 && rnd() < 0.12) {
+      const nomi = NUOVI_RIVALI.filter(x => !G.rivali.some(R => R.nome === x.nome)); if (nomi.length) {
+        const X = pick(nomi), hub = pick(Object.keys(AP).filter(i => AP[i].pop > 2000 && !G.basi.includes(i) && !G.rivali.some(R => R.hub === i)));
+        if (hub) {
+          const dest = Object.keys(AP).filter(i => i !== hub && km(hub, i) < 2500 && km(hub, i) > 300).sort(() => rnd() - 0.5).slice(0, 5);
+          const R = { id: 'n' + (G.seq++), nome: X.nome, colore: X.colore, hub, rep: 50, prezzo: X.prezzo, forza: 50, rotte: Object.fromEntries(dest.map(d => [chiave(hub, d), { freq: 2, prezzo: X.prezzo }])) };
+          G.rivali.push(R); notizia(G, `Nasce una nuova compagnia: ${R.nome}, con base a ${AP[hub].citta} e ${dest.length} rotte.`, 'info', true);
+        }
+      }
+    }
+  }
+  function rimuoviRivale(G, R) {
+    G.rivali = G.rivali.filter(x => x !== R);
+    for (const x of G.rivali) if (x.alleato === R.id) delete x.alleato;
+    G.mosseRivali = (G.mosseRivali || []).filter(m => m.riv !== R.id);
+    if (G.alleanze && G.alleanze[R.id]) delete G.alleanze[R.id];
+    G.jv = (G.jv || []).filter(j => j.riv !== R.id);
+  }
+  function fondiRivali(G, B, R) {
+    for (const [k, x] of Object.entries(R.rotte)) { const y = B.rotte[k]; B.rotte[k] = { freq: Math.max(x.freq, y ? y.freq : 0), prezzo: B.prezzo }; }
+    B.forza = clamp(B.forza + 8, 0, 95); rimuoviRivale(G, R);
+  }
+
+  // ---------- Alleanze con te ----------
+  function disponibilita(G, R, livello) {
+    const guerre = Object.values(R.rotte).filter(x => x.guerraFino).length;
+    let s = 56 + (G.reputazione - R.rep) * 0.5 + (R.forza < 35 ? 20 : 0) - guerre * 15 + (G.cda?.fiducia ?? 60) * 0.1 - 6;
+    if (livello === 'codeshare' && !alleato(G, R.id)) s -= 10;
+    return Math.round(s);
+  }
+  function proponiAlleanza(G, rid, livello) {
+    initRivali(G);
+    const R = G.rivali.find(x => x.id === rid), L = LIVELLI_ALLEANZA[livello]; if (!R || !L) return err('Proposta non valida');
+    const A0 = alleanza(G, rid); if (A0 && (A0.livello === livello || (A0.livello === 'codeshare' && livello === 'pace'))) return err('Avete già questo accordo');
+    if (R.rifiutoFino && G.ora < R.rifiutoFino) return err(`${R.nome} ha rifiutato da poco: riprova dopo il ${dataDi(R.rifiutoFino)}`);
+    if (G.cassa < L.avvio) return err(`Servono ${eur(L.avvio)}`);
+    const s = disponibilita(G, R, livello) + (rnd() - 0.5) * 16;
+    if (s < L.soglia) { R.rifiutoFino = G.ora + 30 * GIORNO; return err(`${R.nome} rifiuta: ${R.rep > G.reputazione + 10 ? 'vi considera meno affidabili di loro' : Object.values(R.rotte).some(x => x.guerraFino) ? 'c’è una guerra dei prezzi in corso tra voi' : 'non vede abbastanza vantaggi'}. Potrai riprovare tra 30 giorni.`); }
+    if (L.avvio) paga(G, L.avvio, 'alleanze');
+    G.alleanze[rid] = { livello, inizio: G.ora };
+    for (const x of Object.values(R.rotte)) if (x.guerraFino) { x.prezzo = R.prezzo; delete x.guerraFino; }
+    G.mosseRivali = (G.mosseRivali || []).filter(m => !(m.riv === rid && m.attacco));
+    if (R.alleato) { const X = G.rivali.find(x => x.id === R.alleato); if (X) { delete X.alleato; } delete R.alleato; }
+    vendite(G);
+    notizia(G, `Accordo firmato con ${R.nome}: ${L.nome.toLowerCase()}. ${L.descr}`, 'buona', true);
+    return ok(`${L.nome} con ${R.nome} firmato`);
+  }
+  function chiudiAlleanza(G, rid) {
+    const R = G.rivali.find(x => x.id === rid); if (!alleato(G, rid)) return err('Nessun accordo da chiudere');
+    delete G.alleanze[rid]; G.jv = G.jv.filter(j => j.riv !== rid); G.reputazione = Math.max(0, G.reputazione - 1); R.rifiutoFino = G.ora + 60 * GIORNO;
+    vendite(G); return ok(`Accordo con ${R.nome} chiuso`);
+  }
+  function jointVenture(G, rid, k) {
+    const R = G.rivali.find(x => x.id === rid); if (!R) return err('Concorrente inesistente');
+    if (alleanza(G, rid)?.livello !== 'codeshare') return err('Prima serve un codeshare con questa compagnia');
+    if (!G.rotte[k] || !R.rotte[k]) return err('Dovete volare entrambi su quella rotta');
+    if (jvSu(G, k)) return err('Su questa rotta c’è già una joint venture');
+    if (G.cassa < AVVIO_JV) return err(`Servono ${eur(AVVIO_JV)}`);
+    paga(G, AVVIO_JV, 'alleanze'); G.jv.push({ riv: rid, k, inizio: G.ora }); vendite(G);
+    notizia(G, `Joint venture con ${R.nome} su ${k.replace('-', '–')}: non vi fate più concorrenza, a ${R.nome} va il ${Math.round(QUOTA_JV * 100)}% dei ricavi della rotta.`, 'buona', true);
+    return ok('Joint venture avviata');
+  }
+
+  // ---------- Acquisizione di un concorrente ----------
+  function acquisisci(G, rid) {
+    initRivali(G);
+    const R = G.rivali.find(x => x.id === rid); if (!R) return err('Concorrente inesistente');
+    const prezzo = prezzoAcquisto(G, R); if (G.cassa < prezzo) return err(`Servono ${eur(prezzo)} in cassa (puoi chiedere un prestito o un aumento di capitale)`);
+    paga(G, prezzo, 'altro');
+    const hub = R.hub, nuovaBase = !G.basi.includes(hub);
+    if (nuovaBase) G.basi.push(hub);
+    // rotte: già avviate, ai prezzi del rivale
+    let nuoveRotte = 0;
+    for (const k of Object.keys(R.rotte)) if (!G.rotte[k]) {
+      const [a, b] = k.split('-'), d = km(a, b), ref = prezzoRif(d) * R.prezzo;
+      G.rotte[k] = { aperta: G.ora - 365 * GIORNO, pY: Math.round(ref), pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) }; nuoveRotte++;
+    }
+    // aerei usati con una settimana provvisoria sulle rotte dal suo hub
+    const autoPrima = G.auto && G.auto.equipaggi; if (G.auto) G.auto.equipaggi = false; // il personale arriva con la compagnia
+    const fl = flottaRivale(R), nuovi = [];
+    for (const x of fl) for (let i = 0; i < x.n; i++) nuovi.push(aggiungiAereo(G, x.mod, 'proprieta', hub, { eta: 6 + Math.floor(rnd() * 10), ore: 15000 + rnd() * 20000, prezzo: MOD[x.mod].prezzo * 0.5, oreDaCheck: Math.round(rnd() * 300), cab: cabinaStandard(x.mod) }));
+    const dalHub = Object.entries(R.rotte).filter(([k]) => k.split('-').includes(hub)).sort((x, y) => y[1].freq - x[1].freq).map(([k]) => k.split('-').find(i => i !== hub));
+    let programmati = 0;
+    for (const ae of nuovi) {
+      const adatte = dalHub.filter(d => km(hub, d) <= MOD[ae.modello].autonomia && (MOD[ae.modello].lungo ? km(hub, d) > 4000 : km(hub, d) <= 4500)); if (!adatte.length) continue;
+      const d1 = adatte[programmati % adatte.length], d2 = adatte[(programmati + 1) % adatte.length];
+      const tent = MOD[ae.modello].lungo ? [{ tipo: 'lungo', dest: [d1] }] : [d2 && d2 !== d1 ? { tipo: 'alterna', dest: [d1, d2] } : null, { tipo: 'navetta', dest: [d1] }].filter(Boolean);
+      for (const t of tent) {
+        const r = rotazioneGuidata(G, ae.id, { ...t, base: hub }); if (!r.ok) continue;
+        for (const s of r.slot) G.slot[s.i] = (G.slot[s.i] || 0) + s.n; // gli slot del rivale passano a te
+        const v = salvaProgramma(G, ae.id, r.prog); if (!v.E.length) { programmati++; break; }
+      }
+    }
+    if (AP[hub].slot) G.slot[hub] = Math.max(G.slot[hub] || 0, 4);
+    // il personale del rivale entra in compagnia: equipaggi già operativi nella sua base
+    let eq = 0; for (const x of pianoAssunzioni(G)) if (x.base === hub) { nuovoEquipaggio(G, { base: x.base, tipo: x.tipo, piloti: x.piloti, cabina: x.cabina, motivo: `ex ${R.nome}` }); eq++; }
+    G._roster = null; if (G.auto) G.auto.equipaggi = autoPrima;
+    rimuoviRivale(G, R);
+    G.acquisizioni.push({ t: G.ora, nome: R.nome, prezzo, aerei: nuovi.length, rotte: nuoveRotte, hub });
+    G.morale = Math.max(0, G.morale - 4); G.reputazione = Math.min(100, G.reputazione + 2);
+    vendite(G);
+    notizia(G, `Acquisizione completata: ${R.nome} è tua per ${eur(prezzo)}. Arrivano ${nuovi.length} aerei (${programmati} già con una settimana provvisoria), ${nuoveRotte} rotte, ${eq} equipaggi${nuovaBase ? ` e la nuova base di ${AP[hub].citta}` : ''}.`, 'buona', true);
+    return ok(`${R.nome} acquisita`);
+  }
+  function costoAlleanze(G) { let c = 0; for (const a of Object.values(G.alleanze || {})) c += LIVELLI_ALLEANZA[a.livello].quotidiano; return c; }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -1850,6 +2025,10 @@ const SIM = (() => {
     },
     decidi(G, i, si) { return decidi(G, i, si); },
     dilemma(G, i) { return scegliDilemma(G, i); },
+    alleanza(G, rid, livello) { return proponiAlleanza(G, rid, livello); },
+    chiudiAlleanza(G, rid) { return chiudiAlleanza(G, rid); },
+    jointVenture(G, rid, k) { return jointVenture(G, rid, k); },
+    acquisisci(G, rid) { return acquisisci(G, rid); },
     progetto(G, tipo) { return avviaProgetto(G, tipo); },
     quotazione(G, quota = 0.3) {
       const B = G.borsa; if (B.quotata) return err('Sei già quotato');
@@ -1895,6 +2074,6 @@ const SIM = (() => {
     }
   };
 
-  return { valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

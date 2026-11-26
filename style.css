@@ -637,3 +637,8 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
   .velocita button { min-width: 34px; padding: 6px 7px; }
   .cima-azioni button { padding: 6px 9px; }
 }
+
+/* ---------- Concorrenza ---------- */
+.carta.rivale h3 { margin: 14px 0 6px; font: 700 13px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .08em; color: var(--testo-2); }
+.carta.rivale.alleato { border-color: var(--ok); }
+.carta.rivale .filtri { margin: 6px 0; align-items: center; }
