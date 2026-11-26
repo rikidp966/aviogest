@@ -774,7 +774,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
-    autoAssumi(G); controllaMissioni(G); giornoGestione(G);
+    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -1445,6 +1445,71 @@ const SIM = (() => {
     if (G.cda.semestre && G.ora >= G.cda.semestre.fine) chiudiSemestre(G);
   }
 
+  /* ---------- Eventi a scelta (dilemmi): ogni tanto una decisione con 2-3 opzioni ---------- */
+  const DILEMMI = [
+    { id: 'sindacato', se: G => G.equipaggi.length >= 4 && G.morale < 70, crea: G => ({ titolo: 'Il sindacato dei piloti chiede un aumento', testo: `I rappresentanti di piloti e assistenti di volo chiedono un aumento del 5%. Il morale è ${Math.round(G.morale)}/100.`, opzioni: [
+      { t: 'Concedi l’aumento del 5%', d: 'Stipendi +5% per sempre, morale +10' },
+      { t: `Offri un premio una tantum (${eur(totPersonale(G) * 800)})`, d: 'Morale +5, nessun costo fisso in più' },
+      { t: 'Rifiuta', d: 'Morale −10 e rischio di sciopero nei prossimi giorni' }] }),
+      fai: (G, i) => {
+        if (i === 0) { G.stipendio = Math.round((G.stipendio + 0.05) * 100) / 100; G.morale = Math.min(100, G.morale + 10); return 'Aumento concesso: il sindacato ringrazia.'; }
+        if (i === 1) { paga(G, totPersonale(G) * 800, 'personale'); G.morale = Math.min(100, G.morale + 5); return 'Premio distribuito: trattativa chiusa.'; }
+        G.morale = Math.max(0, G.morale - 10);
+        if (rnd() < 0.5) { const t = giornoDopo(mezzanotte(G.ora), 2 + Math.floor(rnd() * 4)); G.eventi.push({ tipo: 'sciopero', inizio: t, fine: t + GIORNO, testo: 'Sciopero del personale' }); return `Il sindacato proclama uno sciopero per il ${dataDi(t)}.`; }
+        return 'Il sindacato protesta, ma per ora niente sciopero.';
+      } },
+    { id: 'touroperator', se: G => Object.keys(G.rotte).some(k => k.split('-').some(i => AP[i].tur > 0.5) && rotteInEsercizio(G).has(k)), crea: G => {
+      const k = Object.keys(G.rotte).filter(k => k.split('-').some(i => AP[i].tur > 0.5) && rotteInEsercizio(G).has(k)).sort(() => rnd() - 0.5)[0], r = G.rotte[k], incasso = Math.round(30 * 45 * r.pY * 0.6 / 1000) * 1000;
+      return { dati: { k, incasso }, titolo: 'Un tour operator vuole comprare posti in blocco', testo: `Propone di acquistare 30 posti al giorno su ${k.replace('-', '–')} per 45 giorni, pagando subito ${eur(incasso)} (il 40% in meno del tuo prezzo).`, opzioni: [
+        { t: `Accetta (+${eur(incasso)} subito)`, d: 'Incasso immediato, ma per 45 giorni vendi meno biglietti a prezzo pieno su quella rotta' },
+        { t: 'Rifiuta', d: 'Nessun effetto' }] };
+    }, fai: (G, i, d) => {
+      if (i === 1) return 'Offerta rifiutata.';
+      G.cassa += d.incasso; G.oggi.ricavi += d.incasso;
+      for (const x of d.k.split('-')) G.eventi.push({ tipo: 'domanda', citta: AP[x].citta, fattore: 0.85, inizio: G.ora, fine: G.ora + 45 * GIORNO, testo: 'Posti venduti al tour operator' });
+      return `Contratto firmato: ${eur(d.incasso)} incassati.`;
+    } },
+    { id: 'social', se: G => G.stat.voli > 100, crea: G => ({ titolo: 'Polemica sui social', testo: 'Il video di un passeggero bloccato per ore al gate di uno dei tuoi voli sta facendo il giro dei social.', opzioni: [
+      { t: 'Scuse pubbliche e rimborso (50.000 €)', d: 'Reputazione +1' },
+      { t: 'Campagna di comunicazione (150.000 €)', d: 'Reputazione +3' },
+      { t: 'Non commentare', d: 'Reputazione −4' }] }),
+      fai: (G, i) => { if (i === 0) { paga(G, 50000, 'marketing'); G.reputazione = Math.min(100, G.reputazione + 1); return 'Le scuse sono state apprezzate.'; } if (i === 1) { paga(G, 150000, 'marketing'); G.reputazione = Math.min(100, G.reputazione + 3); return 'La campagna ha ribaltato la storia.'; } G.reputazione = Math.max(0, G.reputazione - 4); return 'Il silenzio è stato notato: reputazione in calo.'; } },
+    { id: 'usato', se: G => G.cassa > 15e6, crea: G => { const mod = modelloPiuUsato(G) || 'A320', prezzo = Math.round(MOD[mod].prezzo * 0.45 / 1e5) * 1e5;
+      return { dati: { mod, prezzo }, titolo: 'Occasione: un aereo da una compagnia fallita', testo: `Il curatore fallimentare vende un ${MOD[mod].nome} di 12 anni a ${eur(prezzo)}, meno della metà del prezzo di listino. Offerta valida 3 giorni.`, opzioni: [
+        { t: `Compra (${eur(prezzo)})`, d: 'Consegna in 7 giorni alla tua base principale, cabina standard' }, { t: 'Lascia perdere', d: 'Nessun effetto' }] }; },
+      fai: (G, i, d) => { if (i === 1) return 'Occasione lasciata ad altri.'; if (G.cassa < d.prezzo) return 'Cassa insufficiente: l’aereo è andato a un concorrente.'; G.cassa -= d.prezzo; const ae = aggiungiAereo(G, d.mod, 'proprieta', G.basi[0], { eta: 12, ore: 30000, prezzo: d.prezzo, consegna: G.ora + 7 * GIORNO, oreDaCheck: 300 }); return `${MOD[d.mod].nome} ${ae.marche} acquistato: arriva tra 7 giorni.`; } },
+    { id: 'banca', se: G => debitoTot(G) > 5e6 && G.cda.fiducia > 40, crea: G => ({ titolo: 'La banca propone di rinegoziare i debiti', testo: `Su ${eur(debitoTot(G))} di debiti la banca offre un tasso più basso di 1,5 punti, con una commissione dell’1%.`, opzioni: [
+      { t: `Accetta (commissione ${eur(debitoTot(G) * 0.01)})`, d: 'Interessi più bassi per tutta la durata dei prestiti' }, { t: 'Rifiuta', d: 'Nessun effetto' }] }),
+      fai: (G, i) => { if (i === 1) return 'Nessuna rinegoziazione.'; paga(G, Math.round(debitoTot(G) * 0.01), 'interessi'); for (const d of G.debiti) d.tasso = Math.max(0.02, d.tasso - 0.015); return 'Debiti rinegoziati: tassi più bassi.'; } },
+    { id: 'sciopero-aeroporto', se: G => G.basi.length > 0 && G.stat.voli > 50, crea: G => ({ dati: { b: G.basi[0] }, titolo: `Sciopero dei servizi a terra a ${G.basi[0]}`, testo: `Domani il personale di terra dell’aeroporto di ${AP[G.basi[0]].citta} sciopera. Puoi assumere personale esterno per garantire i voli.`, opzioni: [
+      { t: 'Personale esterno (80.000 €)', d: 'I voli partono regolarmente' }, { t: 'Accetta i disagi', d: 'Molti voli di domani verranno cancellati' }] }),
+      fai: (G, i, d) => { if (i === 0) { paga(G, 80000, 'altro'); return 'Personale esterno ingaggiato: domani si vola.'; } const t = giornoDopo(mezzanotte(G.ora)); G.eventi.push({ tipo: 'sciopero', inizio: t, fine: t + GIORNO, testo: `Sciopero a ${d.b}` }); return 'Domani ci saranno cancellazioni per lo sciopero.'; } },
+    { id: 'regione', se: G => Object.keys(G.rotte).length >= 3, crea: G => ({ titolo: 'L’ente del turismo propone una campagna insieme', testo: 'La regione paga metà di una campagna online su tutta la tua rete per due settimane (3.000 € al giorno).', opzioni: [
+      { t: 'Accetta (paghi 21.000 €)', d: 'Più passeggeri su tutte le rotte per qualche settimana' }, { t: 'Rifiuta', d: 'Nessun effetto' }] }),
+      fai: (G, i) => { if (i === 1) return 'Proposta rifiutata.'; const r = A.avviaCampagna(G, { canale: 'online', ambito: 'rete', budget: 3000, giorni: 14 }); if (r.errore) return r.errore; G.cassa += 21000; return 'Campagna congiunta avviata: la regione paga metà.'; } },
+    { id: 'fornitore', se: G => !G.copertura && flottaAttiva(G).length >= 3, crea: G => ({ titolo: 'Un fornitore offre il cherosene a prezzo fisso', testo: `Contratto di un anno a ${(G.carburante * 1.03).toFixed(2)} €/kg (oggi ${G.carburante.toFixed(2)}). Ti protegge dai rialzi, ma se il prezzo scende paghi di più.`, opzioni: [
+      { t: 'Firma per un anno', d: 'Prezzo del cherosene bloccato per 365 giorni' }, { t: 'Rifiuta', d: 'Resti esposto al mercato' }] }),
+      fai: (G, i) => { if (i === 1) return 'Contratto rifiutato.'; G.copertura = { prezzo: G.carburante * 1.03, fine: G.ora + 365 * GIORNO }; return 'Prezzo del cherosene bloccato per un anno.'; } }
+  ];
+  function nuovoDilemma(G) {
+    if (G.dilemma || G.ora - G.inizio < 12 * GIORNO || (G.ultimoDilemma && G.ora - G.ultimoDilemma < 9 * GIORNO) || rnd() > 0.2) return;
+    const cand = DILEMMI.filter(x => x.id !== G.dilemmaPrec && (() => { try { return x.se(G); } catch { return false; } })());
+    if (!cand.length) return;
+    const x = cand[Math.floor(rnd() * cand.length)], c = x.crea(G);
+    G.dilemma = { id: x.id, ...c, t: G.ora, scade: G.ora + 3 * GIORNO };
+    G.ultimoDilemma = G.ora; G.dilemmaPrec = x.id;
+    notizia(G, `Decisione da prendere: ${c.titolo}.`, 'info', true);
+  }
+  function scegliDilemma(G, i) {
+    const d = G.dilemma; if (!d) return err('Nessuna decisione in sospeso');
+    const x = DILEMMI.find(y => y.id === d.id); i = clamp(Math.round(i), 0, d.opzioni.length - 1);
+    const esito = x.fai(G, i, d.dati); G.dilemma = null;
+    (G.decisioni ||= []).unshift({ t: G.ora, titolo: d.titolo, scelta: d.opzioni[i].t, esito }); if (G.decisioni.length > 40) G.decisioni.length = 40;
+    notizia(G, `${d.titolo}: ${esito}`, 'info');
+    return ok(esito);
+  }
+  function controllaDilemma(G) { if (G.dilemma && G.ora >= G.dilemma.scade) { const n = G.dilemma.opzioni.length - 1; scegliDilemma(G, n); notizia(G, 'Non hai deciso in tempo: è stata scelta l’ultima opzione.', 'cattiva'); } nuovoDilemma(G); }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -1784,6 +1849,7 @@ const SIM = (() => {
       return ok(`${Rr.nome} commissionato: pronto tra ${Rr.giorni} giorni`);
     },
     decidi(G, i, si) { return decidi(G, i, si); },
+    dilemma(G, i) { return scegliDilemma(G, i); },
     progetto(G, tipo) { return avviaProgetto(G, tipo); },
     quotazione(G, quota = 0.3) {
       const B = G.borsa; if (B.quotata) return err('Sei già quotato');

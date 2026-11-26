@@ -589,3 +589,51 @@ table.bordo tr.sintesi td { background: var(--surface-2); }
   .proposte { grid-template-columns: 1fr; }
   .proposta .azioni button { flex: 1; }
 }
+
+/* ---------- Navigazione per aree, dettagli, notifiche, salti di tempo, guida ---------- */
+.schede-area { display: flex; gap: 4px; margin: -4px 0 18px; border-bottom: 1px solid var(--bordo); overflow-x: auto; scrollbar-width: none; }
+.schede-area::-webkit-scrollbar { display: none; }
+.schede-area a { padding: 9px 14px 10px; font: 600 15px/1.2 var(--f-titolo); text-transform: uppercase; letter-spacing: .06em; color: var(--testo-2); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.schede-area a:hover { color: var(--testo); }
+.schede-area a.on { color: var(--testo); border-bottom-color: var(--segnale-2); }
+.badge-n { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--err); color: #fff; font: 700 11px/1 var(--f-testo); font-style: normal; letter-spacing: 0; }
+nav a .badge-n { margin-left: auto; }
+.navbar-basso a { position: relative; }
+.navbar-basso a .badge-n { position: absolute; top: 2px; right: calc(50% - 22px); min-width: 16px; height: 16px; font-size: 10px; }
+.salti { display: flex; gap: 4px; }
+.salti button { padding: 6px 9px; font-size: 12px; }
+#cNotifiche { position: relative; }
+#cNotifiche i { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--err); color: #fff; font: 700 10px/18px var(--f-testo); font-style: normal; text-align: center; }
+.notizie li.nuova { border-left: 3px solid var(--segnale-2); padding-left: 8px; }
+a.link-rotta { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--testo-3); }
+a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento); }
+.indietro { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--bordo-forte); color: var(--testo); text-decoration: none; font-size: 18px; }
+.salute.grande { font-size: 15px; padding: 9px 12px; }
+.elenco { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.elenco li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--bordo); flex-wrap: wrap; }
+.elenco li:last-child { border-bottom: 0; }
+.elenco .spazio { flex: 1; }
+.opzioni-dilemma { display: flex; flex-direction: column; gap: 8px; }
+.opzioni-dilemma button { height: auto; flex-direction: column; align-items: flex-start; text-align: left; white-space: normal; padding: 12px 14px; gap: 3px; }
+.opzioni-dilemma small { font-weight: 400; opacity: .85; }
+.banner-riunione.dilemma { border-left-color: var(--accento-2); }
+.banner-riunione.dilemma b { color: #8bb2ff; }
+.passi { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; line-height: 1.45; }
+.glossario { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px 20px; margin: 0; }
+.glossario dt { font-weight: 700; }
+.glossario dd { margin: 2px 0 0; color: var(--testo-2); font-size: 14px; line-height: 1.45; }
+.icona-area svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+@media (max-width: 800px) {
+  .salti { display: none; }
+  #cSalti { font-size: 15px; }
+  .schede-area { margin: -4px -12px 14px; padding: 0 12px; }
+  .cima .orario small { display: none; }
+  .schede-area a { padding: 9px 10px 10px; font-size: 14px; }
+}
+.cima-azioni { display: flex; gap: 6px; align-items: center; }
+@media (max-width: 800px) {
+  .cima .orario { order: 0; } .cima .velocita { order: 1; } .cima-azioni { order: 2; margin-left: auto; } .cima .valori { order: 3; }
+  #cSuoni { display: none; }
+  .velocita button { min-width: 34px; padding: 6px 7px; }
+  .cima-azioni button { padding: 6px 9px; }
+}
