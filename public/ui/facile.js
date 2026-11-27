@@ -26,6 +26,8 @@ VISTE.impostazioni = () => {
   const riga = (k, t, d, on) => `<label class="interruttore"><input type="checkbox" data-az-change="${k}" ${on ? 'checked' : ''}><span class="lev" aria-hidden="true"></span><span><b>${t}</b><small>${d}</small></span></label>`;
   return `<div class="testata"><h1>Impostazioni</h1><span class="sotto">Decidi cosa fa il gioco da solo e cosa resta a te</span></div>
   <div class="griglia g2">
+    <div class="pannello"><h2>Modalità</h2>
+      <label class="interruttore"><input type="checkbox" data-esperto="1" ${G.esperto ? 'checked' : ''}><span class="lev" aria-hidden="true"></span><span><b>Modalità esperto</b><small>Controlli a mano i dettagli: posti in promozione e prezzi stagionali per rotta, date delle revisioni, rinnovo dei leasing. Senza, se ne occupa il pilota automatico.</small></span></label></div>
     <div class="pannello"><h2>Pilota automatico</h2>
       ${riga('auto-equipaggi', 'Assume gli equipaggi', 'Ogni notte, se qualche turno della settimana non ha equipaggio, assume quelli che mancano (assunzione normale, operativi in 10 giorni). Se la cassa non basta ti avvisa.', a.equipaggi)}
       ${riga('auto-ispezioni', 'Programma le ispezioni', 'Ogni aereo va in ispezione di notte quando si avvicina alle 600 ore. Puoi ancora cambiarlo aereo per aereo dalla Flotta.', a.ispezioni)}

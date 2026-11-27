@@ -95,7 +95,8 @@ VISTE.prodotto = () => {
     })() : '<p class="muto">Nessuna rotta aperta.</p>'}</div>
   </div>
   <div class="pannello mt"><h2>Sondaggio passeggeri</h2>${G.sondaggio ? `<p class="piccolo muto">Del ${fmtGiorno(G.sondaggio.t)}</p><div class="griglia g3">${CL.map(c => { const x = G.sondaggio.classi[c]; return `<div><b>${CLS[c].nome}</b> · NPS ${x.nps}<ul class="piccolo">${x.idee.length ? x.idee.map(i => `<li>${h(i.nome)}: vorrebbero «${h(i.verso)}» (+${Math.round(i.guadagno * 100)}% di gradimento, ${i.costo > 0 ? '+' + eur(i.costo) + ' a passeggero' : 'senza costi in più'})${i.bloccato ? ' · serve il Wi‑Fi' : ''}</li>`).join('') : '<li>Nessuna richiesta importante</li>'}</ul></div>`; }).join('')}</div>` : `<p class="muto">Nessun sondaggio recente.</p>`}
-    <div class="filtri"><button data-az="ricerca-rapida" data-t="sondaggio">Commissiona un sondaggio · ${eur(D.RICERCHE.sondaggio.costo)}</button></div></div>`;
+    <div class="filtri"><button data-az="ricerca-rapida" data-t="sondaggio">Commissiona un sondaggio · ${eur(D.RICERCHE.sondaggio.costo)}</button></div></div>
+  ${pannelloCanali()}`;
 };
 
 // Mercati e ricerche

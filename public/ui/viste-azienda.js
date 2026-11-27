@@ -36,7 +36,8 @@ function formAcquisto({ mod, usato }) {
   const prezzo = o ? o.prezzo : m.prezzo, leasing = o ? o.leasing : m.leasing;
   configuratore({
     titolo: `${o ? 'Acquista' : 'Ordina'} ${m.nome}${o ? ` usato di ${o.eta} anni` : ''}`, mod, cab,
-    info: `<div class="form" style="margin-bottom:14px"><label>Contratto<select id="acqModo">${opzioni([['leasing', `Leasing · ${eur(leasing)}/giorno, deposito ${eur(leasing * 30)}`], ['proprieta', `Acquisto · ${eur(prezzo)}`]], 'leasing')}</select></label>
+    info: `<div class="form" style="margin-bottom:14px"><label>Durata del leasing<select id="acqAnni">${opzioni([[6, '6 anni · canone pieno'], [8, '8 anni · −5%'], [10, '10 anni · −8%']], 8)}</select></label>
+      <label>Contratto<select id="acqModo">${opzioni([['leasing', `Leasing · ${eur(leasing)}/giorno, deposito ${eur(leasing * 30)}`], ['proprieta', `Acquisto · ${eur(prezzo)}`]], 'leasing')}</select></label>
       ${o ? '' : `<label class="pieno">Consegna<select id="acqAttesa">${opzioni(opzioniConsegna(mod), SIM.disponibile(G, mod) ? 1 : 1)}</select><small class="muto">Ordinando con anticipo paghi subito un acconto del 10% (o il deposito del leasing) e il resto alla consegna.</small></label>`}
       <label>Base di consegna<select id="acqBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), G.basi[0])}</select></label></div>
       ${o ? `<p class="piccolo">Cabina attuale: ${chipCab(o.cab)} — se la cambi: ${eur(60000)} + ${eur(800)} a posto e 4 giorni in più.</p>` : ''}`,
@@ -139,6 +140,7 @@ VISTE.finanze = () => {
     <div><small>Utile ultimi 30 giorni</small><b class="${u30.utile < 0 ? 'neg' : ''}">${mln(u30.utile)}</b><span>${u30.n} giorni</span></div>
     <div><small>Utile cumulato</small><b class="${G.stat.utile < 0 ? 'neg' : ''}">${mln(G.stat.utile)}</b><span>dall’inizio</span></div>
   </div>
+  ${pannelliFinanza()}
   <div class="griglia g2">
     <div class="pannello"><h2>Utile giornaliero · ultimi 60 giorni</h2>${G.storico.length ? graficoUtile(G.storico.slice(-60).map(x => ({ t: x.t, v: x.utile, r: x.ricavi, c: x.costi }))) : '<p class="vuoto">Dati disponibili dopo il primo giorno</p>'}</div>
     <div class="pannello"><h2>Cassa · ultimi 120 giorni</h2>${G.storico.length ? graficoLinea(G.storico.slice(-120).map(x => ({ t: x.t, v: x.cassa }))) : '<p class="vuoto">Dati disponibili dopo il primo giorno</p>'}</div>

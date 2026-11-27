@@ -152,6 +152,7 @@ function cartaAereo(ae) {
     <div class="riga"><span>Utile voli 7 giorni</span><span>${segno(s7.ricavi - s7.costi)}</span></div>
     <div class="riga"><span>Ore dall’ultima ispezione</span><span>${ae.lavori ? `${ae.lavori.tipo === 'cabina' ? 'cabina' : 'ispezione'} dalle ${fmtOra(ae.lavori.inizio)} del ${fmtGiorno(ae.lavori.inizio)}` : ''}</span></div>
     ${barretta(ae.oreDaCheck / 600, `${Math.round(ae.oreDaCheck)}/600 h`, [0.85, 1.0])}
+    ${righeFlottaAvanzata(ae)}
     <label class="piccolo"><input type="checkbox" data-az="autocheck" data-id="${ae.id}" ${ae.autoCheck ? 'checked' : ''}> Ispezione automatica notturna quando serve</label>
     <div class="azioni">
       ${SIM.mediaCiclo(ae).ore ? '' : `<button class="piccolo primario" data-az="guida" data-id="${ae.id}">✨ Rotazione guidata</button>`}<button class="piccolo ${SIM.mediaCiclo(ae).ore ? 'primario' : ''}" data-az="vai-prog" data-id="${ae.id}">Rotazione</button>

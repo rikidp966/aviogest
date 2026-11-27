@@ -12,7 +12,7 @@ const ICONE = {
 };
 const AREE = [
   { id: 'oggi', nome: 'Oggi', pagine: [['panoramica', 'Panoramica'], ['voli', 'Voli'], ['giornale', 'Giornale'], ['guida', 'Guida']] },
-  { id: 'rete', nome: 'Rete', pagine: [['programmazione', 'Programmazione'], ['rotte', 'Rotte e prezzi'], ['hub', 'Hub'], ['aeroporti', 'Aeroporti e slot']], extra: ['rotta', 'aeroporto'] },
+  { id: 'rete', nome: 'Rete', pagine: [['programmazione', 'Programmazione'], ['rotte', 'Rotte e prezzi'], ['hub', 'Hub'], ['aeroporti', 'Aeroporti e slot'], ['operazioni', 'Centro operativo']], extra: ['rotta', 'aeroporto'] },
   { id: 'commerciale', nome: 'Commerciale', pagine: [['prodotto', 'Bordo e tariffe'], ['fedelta', 'Fedeltà'], ['mercati', 'Mercati e ricerche'], ['accordi', 'Accordi'], ['marketing', 'Marketing'], ['ricavi', 'Ricavi'], ['concorrenza', 'Concorrenza']] },
   { id: 'flotta', nome: 'Flotta', pagine: [['flotta', 'Aerei'], ['mercato', 'Mercato aerei'], ['personale', 'Equipaggi']], extra: ['aereo'] },
   { id: 'azienda', nome: 'Azienda', pagine: [['direzione', 'Direzione'], ['finanze', 'Finanze e borsa'], ['sostenibilita', 'Sostenibilità'], ['obiettivi', 'Obiettivi'], ['impostazioni', 'Impostazioni']] }
@@ -78,6 +78,7 @@ VISTE.rotta = () => {
       ${mosse.map(m => `<p class="piccolo neg">In arrivo: ${h(G.rivali.find(x => x.id === m.riv).nome)} aprirà questa rotta verso il ${fmtGiorno(m.t)}.</p>`).join('')}
       <p class="piccolo">${camp.length ? 'Pubblicità attiva: ' + camp.map(c => h(D.MARKETING[c.canale].nome + ' ' + c.etichetta)).join(', ') : 'Nessuna pubblicità su questa rotta.'} <a href="#/marketing">Marketing</a></p></div>
   </div>
+  ${pannelloClientiRotta(k)}
   <div class="filtri mt"><button class="pericolo" data-az="chiudi-rotta" data-k="${k}">Chiudi la rotta</button></div>`;
 };
 

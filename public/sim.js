@@ -105,7 +105,7 @@ const SIM = (() => {
       stato: opz.consegna ? 'consegna' : 'attivo', fino: opz.consegna || 0, base, pos: base,
       prog: settimanaVuota(base, MOD[modello].lungo ? 90 : MOD[modello].tipo === 'ATR' ? 30 : 40), lavori: null, autoCheck: !G.auto || G.auto.ispezioni !== false
     };
-    G.aerei.push(ae); return ae;
+    G.aerei.push(ae); completaAereo(G, ae, !opz.eta); return ae;
   }
   const flottaAttiva = G => G.aerei.filter(a => a.stato !== 'venduto');
   const settimanaVuota = (base, turn = 40) => ({ turn, giorni: GIORNI_SETT.map(() => ({ inizio: '06:30', scali: [base], attese: [] })) });
@@ -281,6 +281,9 @@ const SIM = (() => {
     const i = indiceCiclo(ae.prog, giorno), piano = pianoCiclo(G, ae);
     legsGiorno(ae, ae.prog.giorni[i], ae.prog.turn).forEach((l, k) => {
       const dep = tsDi(giorno, l.dep); if (dep <= G.ora) return;
+      if (ae.lavori && ['C', 'D', 'ammodernamento'].includes(ae.lavori.tipo) && dep >= ae.lavori.inizio - 2 * ORA && dep < ae.lavori.fine) return;
+      if (!dirittiOk(G, l.da, l.a)) return; // senza diritti di traffico il volo non si opera
+      if (eventoAttivo(G, 'chiusura', dep, [l.da, l.a])) return;
       const t = piano.mappa[`${i}-${k}`] || { base: null, legs: [] }, ultimo = t.legs.at(-1), fine = ultimo && ultimo.giorno === i && ultimo.k === k, primo = t.legs[0] && t.legs[0].giorno === i && t.legs[0].k === k;
       const v = { id: G.seq++, ae: ae.id, num: numeroVolo(G, l.da, l.a, l.dep % 1440), da: l.da, a: l.a, dep, arr: tsDi(giorno, l.arr), v: zero(), t: zero(), inc: zero(), incT: 0, att: zero(), conn: {}, stato: 'prog', rit: 0, base: t.base, turno: `${ae.id}#${t.idx}`, piloti: t.piloti || 2, fineTurno: !!fine && t.termina !== t.base, posizionato: !!primo && !!t.posizionato, sostaFuori: !!piano.flag[`${i}-${k}`]?.sostaFuori };
       const old = vecchi && vecchi.get(`${l.da}${l.a}${dep}`);
@@ -382,7 +385,7 @@ const SIM = (() => {
     // stagioni invertite se la meta è nell'emisfero sud
     const mese = (d.getUTCMonth() + (B.lat < 0 ? 6 : 0)) % 12;
     const stag = mese >= 5 && mese <= 8 ? 1 + 0.6 * tur : (mese === 11 || mese <= 1) ? 1 - 0.3 * tur : (mese === 3 || mese === 4 || mese === 9) ? 1 + 0.15 * tur : 1;
-    const dow = [1.12, 1.0, 0.92, 0.92, 1.0, 1.15, 0.88][d.getUTCDay()];
+    const dow = dowSegmenti(da, a, giorno);
     // i viaggi lunghi sono meno frequenti; tra paesi diversi e lontani ancora meno
     const k = km(da, a); let dist = k <= 1500 ? 1 : (1500 / k) ** 0.5; if (A.paese !== B.paese && k > 2500) dist *= 0.85;
     // tratte medie (400–4000 km): meno viaggiatori, altrimenti ai prezzi di riferimento gli aerei sarebbero sempre pieni
@@ -407,6 +410,7 @@ const SIM = (() => {
     if (opz.stima && !studiato(G, da, a)) mercato /= fattoreRotta(G, da, a);
     if (Sg) mercato *= Sg.domanda * (Sg.corto && k < 900 ? Sg.corto : Sg.lungo && k > 2500 ? Sg.lungo : 1);
     if (M.sito) mercato *= 1.03;
+    if (G.globale) mercato *= 1.04 + (AP[da].continente !== AP[a].continente ? 0.04 : 0);
     if (G.alleanze) for (const [rid, al] of Object.entries(G.alleanze)) if (al.livello === 'codeshare') {
       const P = G.rivali.find(x => x.id === rid), cA = AP[da].citta, cB = AP[a].citta;
       if (P && Object.keys(P.rotte).some(k => k.split('-').some(i => AP[i].citta === cA || AP[i].citta === cB))) { mercato *= 1.06; break; }
@@ -414,9 +418,9 @@ const SIM = (() => {
     const val = G.bordo ? valoreProdotto(G, k) : null, pYe = val ? pY / val.Y : pY;
     const sp = opz.senzaMarketing ? { tot: 0, bus: 0 } : spinta(G, da, a, opz.escludi, opz.extra);
     const riv = rivaliSu(G, da, a), altri = altriMezzi(da, a, k) * (G.treni && G.treni.includes(chiaveCitta(da, a)) ? 2.5 : 1);
-    const attrP = freq > 0 ? repF(G.reputazione) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) : 0;
+    const attrP = freq > 0 ? repF(G.reputazione) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) * fattoreMarchio(G, da, a) : 0;
     let tot = attrP + altri;
-    const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq) * (x.riv.alleato ? 1.05 : 1); tot += at; return { ...x, at }; });
+    const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq) * (x.riv.alleato ? 1.05 : 1) * (x.riv.globale ? 1.03 : 1); tot += at; return { ...x, at }; });
     rivali.forEach(x => x.quota = x.at / tot);
     const quota = attrP / tot, maturita = maturitaRotta(G, da, a, giorno);
     const pax = mercato * quota * clamp((ref / pYe) ** (1.5 * (Sg ? Sg.elasticita || 1 : 1)), 0.15, 1.8) * maturita * (1 + 0.3 * sp.tot);
@@ -465,26 +469,29 @@ const SIM = (() => {
 
   function vendite(G) {
     const aeMap = new Map(G.aerei.map(a => [a.id, a]));
-    const futuri = G.voli.filter(v => v.stato === 'prog' && v.dep > G.ora && aeMap.get(v.ae));
+    const futuri = G.voli.filter(v => v.stato === 'prog' && v.dep > G.ora && aeMap.get(v.ae) && dirittiOk(G, v.da, v.a));
     const oggi = mezzanotte(G.ora);
     // 1) passeggeri locali, raggruppati per giorno, città e direzione
     const gruppi = new Map();
     for (const v of futuri) { const k = mezzanotte(v.dep) + '|' + AP[v.da].citta + '>' + AP[v.a].citta; if (!gruppi.has(k)) gruppi.set(k, []); gruppi.get(k).push(v); }
     for (const lista of gruppi.values()) {
-      const v0 = lista[0], g = mezzanotte(v0.dep), prezzi = lista.map(v => prezziRotta(G, v.da, v.a));
+      const v0 = lista[0], g = mezzanotte(v0.dep), prezzi = lista.map(v => prezziGiorno(G, v.da, v.a, v.dep));
       const pm = { pJ: 0, pW: 0, pY: 0 }; for (const p of prezzi) for (const c of CL) pm['p' + c] += p['p' + c] / lista.length;
       const am = analisiMercato(G, v0.da, v0.a, g, lista.length, pm.pY);
       if (g === oggi || g === giornoDopo(oggi)) for (const v of lista) { const r = G.rotte[chiave(v.da, v.a)]; if (r) { r.quota = am.quota; r.rivali = am.rivali.length; } }
       const dom = domandaClassi(am.pax, am.quote, pm, am.ref, am.km, am.val);
-      const pesi = lista.map(v => pesoOra(oraLocaleMin((v.dep - g) / MIN, v.da))), tot = pesi.reduce((s, x) => s + x, 0);
+      const mix = mixTariffe(G, chiave(v0.da, v0.a), v0.da, v0.a), aff = mix.seg.affari;
+      const pesi = lista.map(v => { const m = oraLocaleMin((v.dep - g) / MIN, v.da); return (1 - aff) * pesoOra(m) + aff * 1.3 * pesoAffari(m); }), tot = pesi.reduce((s, x) => s + x, 0);
+      // senza un volo comodo la mattina o la sera parte dei clienti d'affari sceglie altro
+      const copertura = Math.max(...lista.map(v => pesoAffari(oraLocaleMin((v.dep - g) / MIN, v.da)))), fDom = mix.domanda * (1 - aff * 0.25 * (1 - copertura));
       const T = G.tariffe || {}, DIN = D.DINAMICO[T.dinamico || 'fisso'], ob = 1 + (T.overbooking || 0);
       const resa = (T.famiglie ? 1.05 : 1) * ((G.mod || {}).rm ? 1.03 : 1), perdita = 1 - DIN.perdita - (T.famiglie ? 0.01 : 0);
       lista.forEach((v, i) => {
         const ae = aeMap.get(v.ae), p = prezzi[i], w = pesi[i] / tot, d = {}, cab = {}, capOB = {};
-        for (const c of CL) { d[c] = dom[c] * w * (pm['p' + c] / p['p' + c]) * perdita; capOB[c] = Math.floor(ae.cab[c] * ob); cab[c] = capOB[c] - v.t[c]; }
+        for (const c of CL) { d[c] = dom[c] * w * (pm['p' + c] / p['p' + c]) * perdita * fDom; capOB[c] = Math.floor(ae.cab[c] * ob); cab[c] = capOB[c] - v.t[c]; }
         v.att = vendiClassi(d, capOB, 1);
         const tgt = vendiClassi(d, cab, progressoVendite((v.dep - G.ora) / ORA));
-        for (const c of CL) if (tgt[c] > v.v[c]) { v.inc[c] += (tgt[c] - v.v[c]) * p['p' + c] * resa * rialzoDinamico(G, (v.v[c] + v.t[c]) / Math.max(1, ae.cab[c])); v.v[c] = tgt[c]; }
+        for (const c of CL) if (tgt[c] > v.v[c]) { v.inc[c] += (tgt[c] - v.v[c]) * p['p' + c] * resa * mix.resa * rialzoDinamico(G, (v.v[c] + v.t[c]) / Math.max(1, ae.cab[c])); v.v[c] = tgt[c]; }
       });
     }
     // 2) passeggeri in coincidenza negli hub (attesa tra MCT e attesa massima, solo mercati senza un tuo volo diretto)
@@ -569,15 +576,20 @@ const SIM = (() => {
   /* ---------- Svolgimento dei voli ---------- */
   const eventoAttivo = (G, tipo, t, iata) => G.eventi.find(e => e.tipo === tipo && e.inizio <= t && e.fine > t && (!iata || !e.iata || iata.includes(e.iata)));
   function partenza(G, v) {
-    const ae = G.aerei.find(x => x.id === v.ae);
-    let motivo = null, straord = false;
+    let ae = G.aerei.find(x => x.id === v.ae);
+    let motivo = null, straord = false, attesaRip = 0;
     const chiusa = eventoAttivo(G, 'chiusura', v.dep, [v.da, v.a]);
+    const revScaduta = x => G.ora > (x.prossimaC ?? Infinity) + 60 * GIORNO || G.ora > (x.prossimaD ?? Infinity) + 60 * GIORNO;
+    if (ae && !chiusa && ae.stato === 'guasto' && ae.fino - v.dep <= 3 * ORA && ae.pos === v.da) { attesaRip = Math.round((ae.fino - v.dep) / MIN) + 30; ae.stato = 'attivo'; registraIrops(G, `${v.num}: si aspetta la riparazione di ${ae.marche}, partenza ritardata di ${attesaRip} minuti invece di cancellare.`); }
+    if (ae && !chiusa && (ae.stato === 'guasto' || ae.stato === 'manutenzione' || revScaduta(ae))) { const x = aereoDiRiserva(G, v, ae); if (x) { registraIrops(G, `${x.marche} sostituisce ${ae.marche} sul ${v.num} ${v.da}→${v.a}.`); v.ae = x.id; ae = x; } }
     if (!ae || ae.stato === 'venduto') motivo = 'Aereo non più in flotta';
     else if (chiusa) { motivo = chiusa.testo; straord = true; }
+    else if (!dirittiOk(G, v.da, v.a)) { motivo = 'In attesa dei diritti di traffico'; straord = true; }
     else if (ae.stato === 'manutenzione') motivo = ae.lavori?.tipo === 'cabina' ? 'Aereo in riconfigurazione cabina' : 'Aereo in manutenzione';
     else if (ae.stato === 'guasto') motivo = 'Aereo fermo per guasto';
     else if (ae.stato === 'consegna') motivo = 'Aereo non ancora consegnato';
     else if (ae.oreDaCheck > 700) motivo = 'Ispezione scaduta: aereo fermo per legge';
+    else if (revScaduta(ae)) motivo = 'Revisione obbligatoria scaduta: aereo fermo per legge';
     else if (ae.pos !== v.da) motivo = `Aereo non presente a ${v.da}`;
     else {
       const usura = ae.oreDaCheck / 600, titolare = equipaggioDi(G, v);
@@ -598,9 +610,10 @@ const SIM = (() => {
       if (!motivo) {
         const prop = ae.arrPrevista ? Math.max(0, (ae.arrPrevista + 25 * MIN - v.dep) / MIN) : 0;
         const fatica = Math.max(0, ((roster(G).carico.get(eq.id)?.min || 0) / 60 / MAX_ORE) - 0.8), proprio = (G.handlingProprio || []).includes(v.da), dev = eventoAttivo(G, 'deviazione', v.dep, [v.da, v.a]);
-        const p = (0.16 + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0)) * ((G.mod || {}).puntualita ? 0.75 : 1) * (1 + 2 * fatica) * (proprio ? 0.85 : 1);
+        const hDep = oraLocaleMin((v.dep - mezzanotte(v.dep)) / MIN, v.da) / 60, punta = AP[v.da].slot && ((hDep >= 7 && hDep < 9) || (hDep >= 17 && hDep < 20)) ? 0.06 : 0;
+        const p = (0.16 + punta + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0)) * ((G.mod || {}).puntualita ? 0.75 : 1) * (1 + 2 * fatica) * (proprio ? 0.85 : 1);
         const own = rnd() < p ? -Math.log(rnd()) * (meteo ? 45 : 20) : 0;
-        v.rit = Math.round(Math.max(prop, own) + (dev ? 40 : 0) + (meteo && meteo.neve ? 15 : 0));
+        v.rit = Math.round(Math.max(prop, own, attesaRip) + (dev ? 40 : 0) + (meteo && meteo.neve ? 15 : 0));
         if (meteo && meteo.neve) v.ghiaccio = true; if (dev) v.deviato = true;
         // uccelli: rientro e controllo dell'aereo
         if (rnd() < 0.0008 * fImprevisti(G)) { v.rit += 90; const c0 = Math.round(15000 * franchigia(G)); G.cassa -= c0; G.oggi.costi.manutenzione += c0; notizia(G, `Impatto con uno stormo di uccelli in decollo da ${v.da}: controlli al motore, ${v.rit} minuti di ritardo.`, 'evento'); }
@@ -619,8 +632,9 @@ const SIM = (() => {
   function cancella(G, v, motivo, straord) {
     v.stato = 'canc'; v.motivo = motivo;
     const pax = venduti(v), k = km(v.da, v.a);
-    const rimborso = Math.round(pax * ((straord ? 0 : (k <= 1500 ? 250 : k <= 3500 ? 400 : 600) * 0.45) + 15));
-    G.cassa -= rimborso; G.oggi.costi.rimborsi += rimborso; G.oggi.canc++;
+    const spostati = riproteggi(G, v), restanti = pax - spostati;
+    const rimborso = Math.round(restanti * ((straord ? 0 : (k <= 1500 ? 250 : k <= 3500 ? 400 : 600) * 0.45) + 15) + spostati * 40);
+    G.cassa -= rimborso; G.oggi.costi.rimborsi += rimborso; G.oggi.canc++; if (straord) G.oggi.cancEsterne = (G.oggi.cancEsterne || 0) + 1;
     const r = statRotta(G.oggi, chiave(v.da, v.a)); r.canc++; r.costi += rimborso;
     registra(G, v, { pax, ricavi: 0, costi: rimborso, dettaglio: { rimborsi: rimborso }, ricaviC: zero() });
   }
@@ -636,14 +650,15 @@ const SIM = (() => {
     const paxC = { J: Math.min(ae.cab.J, v.v.J + v.t.J), W: Math.min(ae.cab.W, v.v.W + v.t.W), Y: 0 }; paxC.Y = Math.max(0, pax - paxC.J - paxC.W);
     const bordo = contoBordo(G, paxC, h);
     const c = {
-      carburante: Math.round(m.consumo * h * (G.copertura ? G.copertura.prezzo : G.carburante) * (1 + 1.5 * (G.saf || 0)) * cambioF(G) * (v.deviato ? 1.35 : 1)),
+      carburante: Math.round(m.consumo * h * (1 + 0.006 * ae.eta) * (ae.consumoF || 1) * (G.copertura ? G.copertura.prezzo : G.carburante) * (1 + 1.5 * (G.saf || 0)) * cambioF(G) * (v.deviato ? 1.35 : 1)),
       co2: Math.round(m.consumo * h * 3.16 / 1000 * (G.co2 || 0) * QUOTA_CO2(v.da, v.a) * (1 - 0.8 * (G.saf || 0))),
-      tasse: Math.round(pax * AP[v.da].tassa * (1 - scontoAeroporto(G, v.da)) + Math.max(np * 2, m.peso * 8)),
+      tasse: Math.round(pax * AP[v.da].tassa * (1 - scontoAeroporto(G, v.da)) + Math.max(np * 2, m.peso * 8) * (AP[v.da].slot && (() => { const h0 = oraLocaleMin((v.depEff - mezzanotte(v.depEff)) / MIN, v.da) / 60; return h0 >= 23 || h0 < 6; })() ? 1.25 : 1)),
       handling: Math.round((250 + pax * 5) * Sg.handling * (M.app ? 0.85 : 1) * ((G.handlingProprio || []).includes(v.da) ? 0.4 : 1) + (v.ghiaccio ? 1500 * MOD[ae.modello].peso / 70 : 0)),
       navigazione: Math.round(k * 0.6 * Math.sqrt(m.peso / 70)),
       manutenzione: Math.round(m.manut * h * (1 + ae.eta * 0.03)),
       servizio: bordo.costo,
       negati: negati * (k < 1500 ? 250 : 400),
+      distribuzione: Math.round(CL.reduce((x, c) => x + v.inc[c], 0) * canali(G).costo),
       rimborsi: (v.rit >= 180 ? Math.round(pax * (k <= 1500 ? 250 : k <= 3500 ? 400 : 600) * 0.45) : 0) + (v.rit >= 120 ? pax * 15 : 0),
       equipaggi: Math.round((v.fineTurno ? (v.piloti + cabMin(ae)) * 150 * (BENESSERE[G.benessere || 'nessuno'].alloggi ? 0.7 : 1) : 0) + (v.posizionato ? (v.piloti + cabMin(ae)) * 250 : 0)),
       soste: v.sostaFuori ? Math.round(m.peso * 15) : 0
@@ -654,6 +669,8 @@ const SIM = (() => {
     G.oggi.co2 = (G.oggi.co2 || 0) + m.consumo * h * 3.16 / 1000 * (1 - 0.8 * (G.saf || 0));
     const contr = contributoRotta(G, chiave(v.da, v.a)); if (contr) { ricavi += contr; G.oggi.contributi = (G.oggi.contributi || 0) + contr; const acc = G.accordi.find(x => x.tipo === 'regione' && x.k === chiave(v.da, v.a)); if (acc) acc.incassato += contr; }
     { const sc = scontoAeroporto(G, v.da); if (sc) { const acc = G.accordi.find(x => x.tipo === 'aeroporto' && x.iata === v.da); if (acc) acc.risparmiato += Math.round(pax * AP[v.da].tassa * sc); } }
+    // passeggeri in coincidenza che perdono il volo successivo: riprotezione e assistenza
+    for (const [id2, cnt] of Object.entries(v.conn || {})) { const f2 = G.voli.find(x => String(x.id) === id2), n = somma(cnt); if (!f2 || !n || f2.stato !== 'prog' || f2.dep >= v.arrEff + 25 * MIN) continue; const cst = n * 120; c.rimborsi = (c.rimborsi || 0) + cst; costi += cst; G.oggi.persi = (G.oggi.persi || 0) + n; if (n >= 10) notizia(G, `${n} passeggeri del ${v.num} hanno perso la coincidenza a ${v.a}: riprotetti sul volo successivo.`, 'cattiva'); }
     if (jvSu(G, chiave(v.da, v.a))) { c.alleanze = Math.round(ricavi * QUOTA_JV); costi += c.alleanze; }
     v.stato = 'arrivato'; ae.ore += h; ae.cicli++; ae.oreDaCheck += h; ae.inVolo = null;
     { const e = G.equipaggi.find(x => x.id === v.eqId); if (e) { e.ore = (e.ore || 0) + h; e.oreAnno = (e.oreAnno || 0) + h; if (e.oreAnno > 900 && !assente(e, G.ora)) { e.assenteFino = Date.UTC(loc(G.ora).getUTCFullYear() + 1, 0, 1) - FUSO * ORA; e.assenza = 'limite di 900 ore annue'; notizia(G, `L’equipaggio ${e.nome} ha raggiunto il limite di 900 ore di volo dell’anno: a terra fino a gennaio.`, 'cattiva', true); } } }
@@ -665,6 +682,7 @@ const SIM = (() => {
       G.cassa -= cst; G.oggi.costi.altro = (G.oggi.costi.altro || 0) + cst; notizia(G, t, 'evento'); }
     G.cassa += ricavi - costi;
     const o = G.oggi;
+    o.ask = (o.ask || 0) + np * k; o.rpk = (o.rpk || 0) + pax * k;
     o.voli++; o.pax += pax; o.posti += np; o.ricavi += ricavi; if (v.rit <= 15) o.puntuali++;
     for (const x of CL) { o.paxC[x] += v.v[x] + v.t[x]; o.ricaviC[x] += ricaviC[x]; }
     for (const x in c) o.costi[x] = (o.costi[x] || 0) + c[x];
@@ -702,13 +720,15 @@ const SIM = (() => {
         if (ae.stato === 'manutenzione' && G.ora >= L.fine) {
           ae.stato = 'attivo'; G.cassa -= L.costo; G.oggi.costi.manutenzione += L.costo; ae.lavori = null;
           if (L.tipo === 'check') { ae.oreDaCheck = 0; notizia(G, `${ae.marche}: ispezione completata (${eur(L.costo)}).`, 'info'); }
+          else if (L.tipo === 'C' || L.tipo === 'D') { ae['prossima' + L.tipo] = G.ora + REVISIONI[L.tipo].ogni * GIORNO; if (L.tipo === 'D') ae.prossimaC = Math.max(ae.prossimaC, G.ora + 730 * GIORNO); ae['avviso' + L.tipo] = false; ae.oreDaCheck = 0; rigeneraAereo(G, ae); notizia(G, `${ae.marche}: ${REVISIONI[L.tipo].nome.replace('Revisione', 'revisione')} completata (${eur(L.costo)}). Torna in servizio.`, 'buona'); }
+          else if (L.tipo === 'ammodernamento') { ae.consumoF = (ae.consumoF || 1) * L.fattore; ae.ammodernamenti.push(L.cosa); if (ae.modo === 'proprieta') ae.valore += L.costo * 0.6; rigeneraAereo(G, ae); notizia(G, `${ae.marche}: ${AMMODERNAMENTI[L.cosa].nome.toLowerCase()} montati. Consumi −${Math.round((1 - L.fattore) * 100)}%.`, 'buona'); }
           else { ae.cab = L.cab; G._roster = null; rigeneraAereo(G, ae); notizia(G, `${ae.marche}: nuova cabina pronta (${L.cab.J} Business · ${L.cab.W} Premium · ${L.cab.Y} Economy).`, 'buona'); }
         }
       }
       if (ae.stato === 'guasto' && G.ora >= ae.fino) { ae.stato = 'attivo'; notizia(G, `${ae.marche} è di nuovo operativo.`, 'buona'); }
       if (ae.stato === 'consegna' && G.ora >= ae.fino) {
         ae.stato = 'attivo'; ae.pos = ae.prog.giorni[indiceCiclo(ae.prog, mezzanotte(G.ora))].scali[0]; G._roster = null;
-        if (ae.saldo) { G.cassa -= ae.saldo; notizia(G, `Pagato il saldo di ${eur(ae.saldo)} per ${ae.marche}.`, 'info'); delete ae.saldo; }
+        if (ae.saldo) { G.cassa -= ae.saldo; flusso(G, 'investimenti', -ae.saldo); notizia(G, `Pagato il saldo di ${eur(ae.saldo)} per ${ae.marche}.`, 'info'); delete ae.saldo; }
         notizia(G, `Consegnato ${MOD[ae.modello].nome} ${ae.marche} a ${ae.base} (${ae.cab.J}J · ${ae.cab.W}W · ${ae.cab.Y}Y). Assegnagli una rotazione!`, 'buona', true);
         rigeneraAereo(G, ae); controllaTraguardi(G);
       }
@@ -789,16 +809,16 @@ const SIM = (() => {
     for (const x in fissi) { o.costi[x] = (o.costi[x] || 0) + fissi[x]; G.cassa -= fissi[x]; }
     for (const x of G.campagne || []) if (x.attiva) x.speso += x.budget;
     for (const x of G.campagne || []) if (D.MARKETING[x.canale].reputazione) G.reputazione = Math.min(100, G.reputazione + 0.12 * x.forza);
-    for (const d of G.debiti) { const r = Math.min(d.capitale, d.rata); d.capitale -= r; G.cassa -= r; }
+    for (const d of G.debiti) { const r = Math.min(d.capitale, d.rata || 0); d.capitale -= r; G.cassa -= r; if (r) flusso(G, 'finanziamenti', -r); }
     G.debiti = G.debiti.filter(d => d.capitale > 1);
     const costi = Object.values(o.costi).reduce((s, x) => s + x, 0);
-    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, extra: Math.round(o.ricaviExtra || 0), co2: Math.round(o.co2 || 0), contributi: Math.round(o.contributi || 0), negati: o.negati || 0, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
+    G.storico.push({ data: dataDi(tPrec), t: mezzanotte(tPrec), voli: o.voli, canc: o.canc, pax: o.pax, posti: o.posti, puntuali: o.puntuali, ricavi: o.ricavi, paxC: o.paxC, ricaviC: o.ricaviC, transito: o.transito, ricaviTransito: Math.round(o.ricaviTransito), costi, utile: o.ricavi - costi, dettaglio: o.costi, cassa: Math.round(G.cassa), rep: G.reputazione, cancEsterne: o.cancEsterne || 0, persi: o.persi || 0, ask: Math.round(o.ask || 0), rpk: Math.round(o.rpk || 0), flussi: o.flussi || null, extra: Math.round(o.ricaviExtra || 0), co2: Math.round(o.co2 || 0), contributi: Math.round(o.contributi || 0), negati: o.negati || 0, rotte: o.rotte, aerei: o.aerei, hub: o.hub });
     const rec = G.storico.at(-1); G.stat.utile += rec.utile;
     const vecchio = G.storico[G.storico.length - 61]; if (vecchio) { delete vecchio.rotte; delete vecchio.aerei; }
     if (G.storico.length > 1200) G.storico.shift();
     G.giorniUtile = rec.utile > 0 ? G.giorniUtile + 1 : 0;
-    for (const ae of G.aerei) if (ae.modo === 'proprieta') ae.valore *= 1 - (0.055 + (superato(G, ae.modello) ? 0.04 : 0)) / 365;
-    const ult = G.storico.slice(-7), voli = ult.reduce((s, x) => s + x.voli, 0), canc = ult.reduce((s, x) => s + x.canc, 0);
+    { let amm = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta' && ae.stato !== 'venduto') { const dv = ae.valore * (0.055 + (superato(G, ae.modello) ? 0.04 : 0)) / 365; ae.valore -= dv; amm += dv; } rec.amm = Math.round(amm); }
+    const ult = G.storico.slice(-7), voli = ult.reduce((s, x) => s + x.voli, 0), canc = ult.reduce((s, x) => s + x.canc - (x.cancEsterne || 0), 0);
     if (voli + canc > 0) {
       const punt = ult.reduce((s, x) => s + x.puntuali, 0) / Math.max(1, voli);
       const target = clamp(50 + (punt - 0.8) * 160 - canc / (voli + canc) * 250 + (G.bordo ? analisiProdotto(G).rep : D.SERVIZIO[G.servizio].rep) + Math.min(5, (G.saf || 0) * 12) + (G.fedelta && G.fedelta.attivo ? SCADENZE[G.fedelta.scadenza].rep || 0 : 0) + (G.morale - 50) * 0.1, 5, 95);
@@ -811,7 +831,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
-    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G); giornoEspansione(G); giornoLavoro(G); giornoRealismo(G);
+    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G); giornoEspansione(G); giornoLavoro(G); giornoRealismo(G); giornoFinanza(G); giornoCommerciale(G); giornoFlotta(G); giornoOperazioni(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -1184,6 +1204,11 @@ const SIM = (() => {
     G.cda ||= { fiducia: 60, semestre: null, storico: [] };
     G.borsa ||= { quotata: false };
     initRivali(G); initFedelta(G); initLavoro(G); initRealismo(G);
+    G.esperto ??= false; G.irops ||= { riserva: true, riprotezione: true };
+    for (const ae of G.aerei) completaAereo(G, ae, false);
+    if (!G.diritti) { G.diritti = {}; for (const k of Object.keys(G.rotte)) { const [a, b] = k.split('-'); if (servonoDiritti(a, b)) G.diritti[chiaveDiritti(a, b)] = { stato: 'concessi' }; } }
+    G.canali ||= { ota: true, aziende: false }; G.promozioni ||= []; G.stelle ??= 3.2;
+    if (!G.notorieta) { G.notorieta = {}; for (const b of G.basi) G.notorieta[AP[b].citta] = 0.7; for (const k of Object.keys(G.rotte)) for (const i of k.split('-')) G.notorieta[AP[i].citta] ??= 0.45; }
     G.co2 ??= 70; G.saf ??= 0; G.accordi ||= []; G.offerte ||= []; G.giornali ||= []; G.bilanci ||= []; G.stagione ||= stagioneDi(G.ora); G.modelliUsciti ||= Object.keys(MOD).filter(k => disponibile(G, k));
     if (!G.cda.semestre) nuovoSemestre(G);
   }
@@ -1318,7 +1343,7 @@ const SIM = (() => {
         const utile = 2 * n * (pax * ref * 1.12 - costoVoloStimato(G, m, k, pax));
         if (!best || utile > best.utile) { best = { mod: m, lf, utile, giri: n }; paxDir = pd; nRiv = am.rivali.length; }
       }
-      out.push({ da: base, a, km: k, ...best, paxDir: Math.round(paxDir), studiato: studiato(G, base, a), rivali: nRiv });
+      out.push({ da: base, a, km: k, ...best, paxDir: Math.round(paxDir), studiato: studiato(G, base, a), rivali: nRiv, diritti: servonoDiritti(base, a) && !dirittiOk(G, base, a) });
     }
     return out.sort((x, y) => y.utile - x.utile).slice(0, n);
   }
@@ -1571,11 +1596,11 @@ const SIM = (() => {
     { nome: 'Boreal Wings', colore: '#5f3dc4', prezzo: 0.95 }, { nome: 'Sirocco Air', colore: '#e8590c', prezzo: 0.8 }, { nome: 'Aurora Sky', colore: '#0c8599', prezzo: 1.15 }
   ];
   const alleanza = (G, rid) => (G.alleanze || {})[rid];
-  const alleato = (G, rid) => !!alleanza(G, rid);
+  const alleato = (G, rid) => !!alleanza(G, rid) || (!!G.globale && (G.rivali.find(r => r.id === rid) || {}).globale === G.globale);
   const jvSu = (G, k) => (G.jv || []).find(j => j.k === k);
   function initRivali(G) {
     G.alleanze ||= {}; G.jv ||= []; G.acquisizioni ||= [];
-    for (const R of G.rivali) { R.forza ??= clamp(55 + (R.rep - 55) * 0.6, 25, 80); }
+    for (const R of G.rivali) { R.forza ??= clamp(55 + (R.rep - 55) * 0.6, 25, 80); if (R.globale === undefined) R.globale = Object.entries(ALLEANZE_G).find(([, x]) => x.membri.includes(R.id))?.[0] || null; }
   }
   // aerei che servono a un rivale per volare la sua rete (stima per l'acquisizione)
   function flottaRivale(R) {
@@ -1598,7 +1623,15 @@ const SIM = (() => {
     const pick = a => a[Math.floor(rnd() * a.length)];
     for (const R of G.rivali.slice()) {
       let f = R.forza;
-      f += (55 - f) * 0.04 + ((G.economia?.[AP[R.hub].continente] || 1) - 1) * 20 + (rnd() - 0.5) * 6;
+      const C0 = contiRivale(G, R); R.cassa = (R.cassa ?? valoreRivale(G, R) * 0.15) + 7 * C0.utile; R.conti = { ricavi: Math.round(C0.ricavi), utile: Math.round(C0.utile), lf: C0.lf };
+      const obiettivo = clamp(50 + (C0.ricavi ? C0.utile / C0.ricavi : -0.5) * 150 + clamp(R.cassa / Math.max(1, C0.ricavi * 30) * 10, -25, 20), 0, 95);
+      f = f * 0.65 + obiettivo * 0.35 + ((G.economia?.[AP[R.hub].continente] || 1) - 1) * 20 + (rnd() - 0.5) * 3;
+      if (!alleato(G, R.id)) for (const [k, x] of Object.entries(R.rotte)) {
+        const mio = G.rotte[k], [a0, b0] = k.split('-');
+        if (mio && mieFreqDir(G, a0, b0) > 0 && mio.pY < prezzoRif(km(a0, b0)) * x.prezzo * 0.88 && (x.margine ?? 0) > -0.3 && !x.guerraFino && rnd() < 0.3) { x.prezzo = Math.max(0.55, x.prezzo * 0.92); notizia(G, `${R.nome} abbassa le tariffe su ${k.replace('-', '–')} per rispondere ai tuoi prezzi.`, 'cattiva'); }
+        if ((x.lf ?? 0) > 0.88 && R.cassa > 0 && x.freq < 8 && rnd() < 0.4) x.freq++;
+        else if ((x.margine ?? 0) < -0.15 && rnd() < 0.4) { x.freq--; if (x.freq <= 0) { delete R.rotte[k]; notizia(G, `${R.nome} chiude la rotta ${k.replace('-', '–')}: non le rendeva.`, 'buona'); } }
+      }
       for (const [k, x] of Object.entries(R.rotte)) {
         if (x.guerraFino) f -= 1.5;
         const r = G.rotte[k]; if (r && (r.quota || 0) > 0.5) f -= 1.2;
@@ -1688,7 +1721,7 @@ const SIM = (() => {
     initRivali(G);
     const R = G.rivali.find(x => x.id === rid); if (!R) return err('Concorrente inesistente');
     const prezzo = prezzoAcquisto(G, R); if (G.cassa < prezzo) return err(`Servono ${eur(prezzo)} in cassa (puoi chiedere un prestito o un aumento di capitale)`);
-    paga(G, prezzo, 'altro');
+    G.cassa -= prezzo; flusso(G, 'investimenti', -prezzo);
     const hub = R.hub, nuovaBase = !G.basi.includes(hub);
     if (nuovaBase) G.basi.push(hub);
     // rotte: già avviate, ai prezzi del rivale
@@ -1724,7 +1757,22 @@ const SIM = (() => {
     notizia(G, `Acquisizione completata: ${R.nome} è tua per ${eur(prezzo)}. Arrivano ${nuovi.length} aerei (${programmati} già con una settimana provvisoria), ${nuoveRotte} rotte, ${eq} equipaggi${nuovaBase ? ` e la nuova base di ${AP[hub].citta}` : ''}.`, 'buona', true);
     return ok(`${R.nome} acquisita`);
   }
-  function costoAlleanze(G) { let c = 0; for (const a of Object.values(G.alleanze || {})) c += LIVELLI_ALLEANZA[a.livello].quotidiano; return c; }
+  const ALLEANZE_G = { polare: { nome: 'Stella Polare', membri: ['mer', 'nst'] }, orbis: { nome: 'Orbis', membri: ['pac', 'cex'] }, meridiana: { nome: 'Meridiana Alliance', membri: ['ven', 'aqj'] } };
+  const QUOTA_GLOBALE = 3e6, CANONE_GLOBALE = 15000;
+  const mieFreqDir = (G, a, b) => { let f = 0; for (const x of flottaAttiva(G)) for (const l of mediaCiclo(x).tratte) if (l.da === a && l.a === b) f += l.peso; return f; };
+  function contiRivale(G, R) {
+    const domani = giornoDopo(mezzanotte(G.ora)); let ricavi = 0, costi = 0, posti = 0, pax = 0;
+    for (const [k, x] of Object.entries(R.rotte)) {
+      const [a, b] = k.split('-'), d = km(a, b), mod = d > 6000 ? 'B789' : d > 4500 ? 'A21X' : 'A320', seats = somma(cabinaStandard(mod)), mio = G.rotte[k];
+      const am = analisiMercato(G, a, b, domani, mieFreqDir(G, a, b), mio ? mio.pY : prezzoRif(d)), q = am.rivali.find(y => y.riv.id === R.id)?.quota || 0;
+      const paxDir = Math.min(am.mercato * q * 0.8, x.freq * seats), ric = 2 * paxDir * prezzoRif(d) * x.prezzo * 1.1, cst = 2 * x.freq * costoVoloStimato(G, mod, d, paxDir / Math.max(1, x.freq));
+      x.lf = paxDir / Math.max(1, x.freq * seats); x.margine = ric ? (ric - cst) / ric : -1;
+      ricavi += ric; costi += cst; posti += 2 * x.freq * seats; pax += 2 * paxDir;
+    }
+    const fissi = 4000 + 1500 * Object.keys(R.rotte).length;
+    return { ricavi, costi: costi + fissi, utile: ricavi - costi - fissi, lf: posti ? pax / posti : 0 };
+  }
+  function costoAlleanze(G) { let c = G.globale ? CANONE_GLOBALE : 0; for (const a of Object.values(G.alleanze || {})) c += LIVELLI_ALLEANZA[a.livello].quotidiano; return c; }
 
   /* ---------- Ordini di aerei e modelli nuovi nel tempo ---------- */
   const tsData = (G, d) => d ? Date.UTC(d[0], d[1] - 1, 1, 0) - (G.fuso ?? FUSO) * ORA : 0;
@@ -2020,6 +2068,7 @@ const SIM = (() => {
     for (const k of Object.keys(G.rotte)) {
       const [a, c] = k.split('-'), basiK = [a, c].filter(i => G.basi.includes(i)), d = km(a, c);
       if (!basiK.length) { scoperte.push({ k, motivo: 'non tocca nessuna tua base: gli aerei partono e dormono nelle basi' }); continue; }
+      if (!dirittiOk(G, a, c)) { const x = (G.diritti || {})[chiaveDiritti(a, c)]; scoperte.push({ k, motivo: x && x.stato === 'negati' ? 'diritti di traffico negati' : 'in attesa dei diritti di traffico' }); continue; }
       const adatti = aerei.filter(ae => MOD[ae.modello].autonomia >= d);
       if (!adatti.length) { scoperte.push({ k, motivo: `nessun aereo della flotta arriva a ${num(d)} km` }); continue; }
       const base = basiK.sort((x, y) => adatti.filter(ae => ae.base === y).length - adatti.filter(ae => ae.base === x).length)[0], dest = a === base ? c : a;
@@ -2119,7 +2168,7 @@ const SIM = (() => {
   const CONTRATTI = { fisso: { nome: 'A tempo indeterminato', paga: 1, assunzione: 1 }, stagionale: { nome: 'Stagionale', paga: 0.85, assunzione: 0.5 }, agenzia: { nome: 'Tramite agenzia', paga: 1.25, assunzione: 2.5 } };
   const fImprevisti = G => LIVELLI_IMPREVISTI[G.imprevisti || 'normale'].f;
   const franchigia = G => ASSICURAZIONI[G.assicurazione || 'standard'].franchigia;
-  const cambioF = G => 1.1 / (G.cambio || 1.1); // leasing e carburante si pagano in dollari
+  const cambioF = G => 1.1 / ((G.coperturaCambio && G.ora < G.coperturaCambio.fine ? G.coperturaCambio.cambio : G.cambio) || 1.1); // leasing e carburante si pagano in dollari
   // costo del lavoro per paese della base
   function fattoreLavoro(iata) {
     const A = AP[iata]; if (!A) return 1;
@@ -2173,7 +2222,7 @@ const SIM = (() => {
       const neve = serviti.filter(i => (nord(i) ? inverno : mese >= 5 && mese <= 7) && Math.abs(AP[i].lat) > 40);
       if (neve.length && rnd() < 0.06 * f) { const i = pick(neve); G.eventi.push({ tipo: 'meteo', neve: true, iata: i, forza: 2, inizio: tsDi(domani, 300), fine: tsDi(domani, 900), testo: `Neve a ${AP[i].citta}` }); notizia(G, `Meteo: neve domattina a ${AP[i].citta}. Sghiacciamento degli aerei, ritardi e qualche cancellazione.`, 'evento'); }
       const tropici = serviti.filter(i => (AP[i].continente === 'Asia' && AP[i].lon > 100 && AP[i].lat > 5 && AP[i].lat < 35 && mese >= 6 && mese <= 9) || (AP[i].continente === 'Nord America' && AP[i].lat < 32 && AP[i].lon > -100 && mese >= 7 && mese <= 9));
-      if (tropici.length && rnd() < 0.02 * f) { const i = pick(tropici), giorni = 1 + Math.floor(rnd() * 2); G.eventi.push({ tipo: 'chiusura', iata: i, inizio: domani, fine: giornoDopo(domani, giorni), testo: `${AP[i].continente === 'Asia' ? 'Tifone' : 'Uragano'}: aeroporto di ${AP[i].citta} chiuso` }); notizia(G, `${AP[i].continente === 'Asia' ? 'Tifone' : 'Uragano'} in arrivo: l’aeroporto di ${AP[i].citta} chiude per ${giorni} ${giorni === 1 ? 'giorno' : 'giorni'} da domani.`, 'cattiva', true); }
+      if (tropici.length && rnd() < 0.02 * f) { const i = pick(tropici), giorni = 1 + Math.floor(rnd() * 2); G.eventi.push({ tipo: 'chiusura', iata: i, inizio: domani, fine: giornoDopo(domani, giorni), testo: `${AP[i].continente === 'Asia' ? 'Tifone' : 'Uragano'}: aeroporto di ${AP[i].citta} chiuso` }); notizia(G, `${AP[i].continente === 'Asia' ? 'Tifone' : 'Uragano'} in arrivo: l’aeroporto di ${AP[i].citta} chiude per ${giorni} ${giorni === 1 ? 'giorno' : 'giorni'} da domani.`, 'cattiva', true); for (const ae of flottaAttiva(G)) rigeneraAereo(G, ae); }
     }
     // economia: cambio euro/dollaro, mete di moda, treni veloci, una nuova low cost
     G.cambio = clamp(G.cambio + (1.1 - G.cambio) * 0.01 + (rnd() - 0.5) * 0.008, 0.9, 1.35);
@@ -2228,7 +2277,7 @@ const SIM = (() => {
   function decidiEmergenza(G, i) {
     const E = G.emergenza; if (!E) return err('Nessuna emergenza'); i = clamp(Math.round(i), 0, E.opzioni.length - 1);
     const domani = giornoDopo(mezzanotte(G.ora)), oggi = mezzanotte(G.ora), D0 = E.dati; let esito = '';
-    const chiudi = (l, giorni, testo) => { for (const x of l) G.eventi.push({ tipo: 'chiusura', iata: x, inizio: G.ora, fine: oggi + giorni * GIORNO, testo }); };
+    const chiudi = (l, giorni, testo) => { for (const x of l) G.eventi.push({ tipo: 'chiusura', iata: x, inizio: G.ora, fine: oggi + giorni * GIORNO, testo }); for (const ae of flottaAttiva(G)) rigeneraAereo(G, ae); };
     if (E.tipo === 'cenere') {
       if (i === 0) { chiudi(D0.aeroporti, D0.giorni, 'Nube di cenere: spazio aereo chiuso'); paga(G, 20000, 'altro'); G.reputazione = Math.min(100, G.reputazione + 1); esito = 'Voli cancellati e passeggeri riprotetti.'; }
       else if (i === 1) { const fort = rnd() < 0.5, g = fort ? Math.max(1, Math.round(D0.giorni / 2)) : D0.giorni + 1; chiudi(D0.aeroporti, g, 'Nube di cenere: spazio aereo chiuso'); if (!fort) G.reputazione = Math.max(0, G.reputazione - 3); esito = fort ? `Ti è andata bene: riapre dopo ${g} giorni.` : `La nube resta ${g} giorni e i passeggeri sono furiosi.`; }
@@ -2314,14 +2363,243 @@ const SIM = (() => {
   // generatore casuale con seme (per la sfida della settimana)
   function generatoreSeme(s) { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
+  /* ---------- Finanza: indicatori di settore, bilancio, flussi di cassa, imposte, rating, obbligazioni, coperture ---------- */
+  const ALIQUOTA = 0.24, RATING = ['AA', 'A', 'BBB', 'BB', 'B', 'CCC'], TASSI_RATING = [0.035, 0.045, 0.055, 0.07, 0.09, 0.13];
+  function flusso(G, tipo, importo) { const o = G.oggi; o.flussi ||= { investimenti: 0, finanziamenti: 0 }; o.flussi[tipo] = (o.flussi[tipo] || 0) + Math.round(importo); }
+  // indicatori usati da tutte le compagnie aeree (ricavi e costi per posto-km offerto, yield, pareggio)
+  function indicatori(G, n = 30) {
+    const u = G.storico.slice(-n), S = k => u.reduce((s, x) => s + (x[k] || 0), 0);
+    const ask = S('ask'), rpk = S('rpk'), ricavi = S('ricavi'), costi = S('costi'), pax = S('pax'), biglietti = u.reduce((s, x) => s + (x.ricaviC ? x.ricaviC.J + x.ricaviC.W + x.ricaviC.Y : 0), 0);
+    let ore = 0, ga = 0; for (const x of u) for (const a of Object.values(x.aerei || {})) { ore += a.ore; ga++; }
+    const rask = ask ? ricavi / ask * 100 : 0, cask = ask ? costi / ask * 100 : 0, yieldK = rpk ? biglietti / rpk * 100 : 0;
+    return { giorni: u.length, ask, rpk, lf: ask ? rpk / ask : 0, rask, cask, yield: yieldK, pareggio: yieldK ? cask / (rask / (ask ? rpk / ask : 1) || yieldK) : 0, ricavoPax: pax ? ricavi / pax : 0, costoPax: pax ? costi / pax : 0, oreAereo: ga ? ore / ga : 0, margine: ricavi ? (ricavi - costi) / ricavi : 0 };
+  }
+  // conto economico su un insieme di giorni dello storico
+  function contoEconomico(l) {
+    const S = k => l.reduce((s, x) => s + (x[k] || 0), 0), det = {};
+    for (const x of l) for (const [k, v] of Object.entries(x.dettaglio || {})) det[k] = (det[k] || 0) + v;
+    const ricavi = S('ricavi'), interessi = det.interessi || 0, costiOp = S('costi') - interessi, amm = S('amm');
+    const ebitda = ricavi - costiOp, ebit = ebitda - amm, anteImposte = ebit - interessi, imposte = Math.max(0, anteImposte) * ALIQUOTA;
+    return { giorni: l.length, ricavi, extra: S('extra'), costiOp, dettaglio: det, ebitda, amm, ebit, interessi, anteImposte, imposte, netto: anteImposte - imposte, investimenti: l.reduce((s, x) => s + (x.flussi?.investimenti || 0), 0), finanziamenti: l.reduce((s, x) => s + (x.flussi?.finanziamenti || 0), 0), operativo: S('utile') };
+  }
+  function statoPatrimoniale(G) {
+    const aerei = G.aerei.filter(a => a.modo === 'proprieta' && a.stato !== 'venduto').reduce((s, a) => s + a.valore, 0);
+    const acconti = G.aerei.filter(a => a.stato === 'consegna').reduce((s, a) => s + (a.acconto || 0), 0);
+    const slot = Object.entries(G.slot || {}).reduce((s, [i, n]) => s + n * AP[i].slotPrezzo * 0.7, 0);
+    const banche = G.debiti.filter(d => d.tipo !== 'obbligazione').reduce((s, d) => s + d.capitale, 0), obbl = G.debiti.filter(d => d.tipo === 'obbligazione').reduce((s, d) => s + d.capitale, 0);
+    const miglia = G.fedelta ? G.fedelta.miglia * VALORE_MIGLIO : 0, saldi = G.aerei.filter(a => a.stato === 'consegna').reduce((s, a) => s + (a.saldo || 0), 0);
+    const attivo = { cassa: Math.max(0, G.cassa), aerei, acconti, slot }, passivo = { scoperto: Math.max(0, -G.cassa), banche, obbligazioni: obbl, miglia, impegni: 0 };
+    const tA = Object.values(attivo).reduce((s, x) => s + x, 0), tP = Object.values(passivo).reduce((s, x) => s + x, 0);
+    return { attivo, passivo, totaleAttivo: tA, totalePassivo: tP, patrimonio: tA - tP, impegniFuturi: saldi };
+  }
+  // giudizio sul credito: decide i tassi di prestiti e obbligazioni
+  function rating(G) {
+    const u = G.storico.slice(-90), ebitda = u.length ? (u.reduce((s, x) => s + x.utile + (x.dettaglio?.interessi || 0), 0) / u.length) * 365 : 0;
+    const debito = debitoTot(G), fissi = Object.values(costiFissi(G)).reduce((s, x) => s + x, 0), giorni = G.cassa / Math.max(1, fissi);
+    let r = 2;
+    const leva = ebitda > 0 ? debito / ebitda : (debito > 0 ? 99 : 0);
+    if (leva < 1) r -= 1; else if (leva > 7) r += 2; else if (leva > 4) r += 1;
+    if (giorni > 60) r -= 0.5; else if (giorni < 10) r += 1;
+    if (G.cda && G.cda.fiducia < 30) r += 1;
+    if (u.length >= 30 && u.reduce((s, x) => s + x.utile, 0) < 0) r += 1;
+    const i = clamp(Math.round(r), 0, 5);
+    return { i, sigla: RATING[i], tasso: TASSI_RATING[i], leva, giorni };
+  }
+  function giornoFinanza(G) {
+    // obbligazioni in scadenza: si rimborsa tutto il capitale
+    for (const d of G.debiti.slice()) if (d.scadenza && G.ora >= d.scadenza) { G.cassa -= d.capitale; flusso(G, 'finanziamenti', -d.capitale); notizia(G, `Rimborsata l’obbligazione di ${eur(d.capitale)}.`, 'info', true); d.capitale = 0; }
+    G.debiti = G.debiti.filter(d => d.capitale > 1);
+    if (G.coperturaCambio && G.ora > G.coperturaCambio.fine) { delete G.coperturaCambio; notizia(G, 'Scaduta la copertura sul cambio euro/dollaro.', 'info'); }
+    const d = loc(G.ora);
+    if (d.getUTCDate() === 1 && d.getUTCMonth() === 0) imposteAnnuali(G);
+  }
+  function imposteAnnuali(G) {
+    const y = loc(G.ora).getUTCFullYear() - 1, l = G.storico.filter(x => loc(x.t).getUTCFullYear() === y); if (!l.length) return;
+    const ce = contoEconomico(l); let imponibile = ce.anteImposte;
+    G.perditeFiscali ||= 0;
+    if (imponibile <= 0) { G.perditeFiscali += -imponibile; notizia(G, `Bilancio fiscale ${y} in perdita: ${eur(-imponibile)} da scalare negli anni prossimi.`, 'info'); return; }
+    const scalo = Math.min(G.perditeFiscali, imponibile * 0.8); imponibile -= scalo; G.perditeFiscali -= scalo;
+    const tasse = Math.round(imponibile * ALIQUOTA); G.cassa -= tasse; G.oggi.costi.imposte = (G.oggi.costi.imposte || 0) + tasse;
+    (G.tasse ||= []).unshift({ anno: y, imponibile, tasse, scalo });
+    notizia(G, `Pagate le imposte sull’utile ${y}: ${eur(tasse)} (24%${scalo ? `, scalate perdite passate per ${eur(scalo)}` : ''}).`, 'info', true);
+  }
+  const usdGiornalieri = G => { const u = G.storico.slice(-30), carb = u.reduce((s, x) => s + (x.dettaglio?.carburante || 0) + (x.dettaglio?.leasing || 0), 0); return u.length ? carb / u.length : 0; };
+
+  /* ---------- Clienti per tipo, scaglioni tariffari, stagioni e promozioni, canali di vendita, notorietà e recensioni ---------- */
+  // domanda per giorno della settimana (indice = getUTCDay, domenica = 0)
+  const DOW = { affari: [0.75, 1.25, 1.1, 1.05, 1.1, 1.2, 0.45], vacanza: [1.2, 0.9, 0.8, 0.85, 0.95, 1.25, 1.15], parenti: [1.15, 0.95, 0.85, 0.9, 1, 1.2, 1] };
+  const _seg = {};
+  function segmenti(da, a) {
+    const k = chiaveCitta(da, a); if (_seg[k]) return _seg[k];
+    const q = quoteClassi(da, a), tur = (AP[da].tur + AP[a].tur) / 2;
+    const aff = clamp(0.15 + (q.J + q.W) * 1.4 - tur * 0.25, 0.08, 0.6), vac = clamp(tur * 0.85, 0.1, 0.7), par = Math.max(0.1, 1 - aff - vac), t = aff + vac + par;
+    return (_seg[k] = { affari: aff / t, vacanza: vac / t, parenti: par / t });
+  }
+  const dowSegmenti = (da, a, giorno) => { const s = segmenti(da, a), g = loc(giorno).getUTCDay(); return s.affari * DOW.affari[g] + s.vacanza * DOW.vacanza[g] + s.parenti * DOW.parenti[g]; };
+  // chi viaggia per lavoro vuole partire presto la mattina o la sera
+  const pesoAffari = min => { const h = min / 60; return (h >= 6 && h < 9.5) || (h >= 17 && h < 20.5) ? 1 : h >= 9.5 && h < 17 ? 0.55 : 0.3; };
+  // scaglioni di prezzo rispetto alla tariffa della classe
+  const SCAGLIONI = { promo: 0.8, base: 1, flex: 1.3 };
+  function quotaPromo(G, k) {
+    const r = G.rotte[k]; if (!r) return 0.2;
+    if (G.esperto && r.promo != null) return r.promo;
+    // revenue management automatico: meno posti in promozione quando i voli si riempiono
+    return clamp(0.45 - 1.2 * ((r.lfRecente ?? 0.75) - 0.65), 0.05, 0.45);
+  }
+  function mixTariffe(G, k, da, a) {
+    const s = segmenti(da, a), q = quotaPromo(G, k), qe = Math.min(q, 0.75), C = G.canali || {}, az = C.aziende ? 1 : 0;
+    const presto = qe * 0.6;
+    let resa = s.affari * (0.6 * SCAGLIONI.flex + 0.4 * SCAGLIONI.base) * (1 - 0.08 * az) + (1 - s.affari) * (presto * SCAGLIONI.promo + (1 - presto) * SCAGLIONI.base);
+    let domanda = (1 + 0.25 * presto * (1 - s.affari)) * (1 + 0.12 * s.affari * az) * (C.ota === false ? 0.9 : 1);
+    return { resa, domanda, q, seg: s };
+  }
+  const altaStagione = (da, a, t) => { const m = (loc(t).getUTCMonth() + (AP[a].lat < 0 ? 6 : 0)) % 12; return m >= 5 && m <= 7 && (AP[da].tur + AP[a].tur) / 2 > 0.25; };
+  const scontoPromozione = (G, k, t) => { let s = 0; for (const p of G.promozioni || []) if (p.k === k && t >= p.inizio && t < p.fine) s = Math.max(s, p.sconto); return s; };
+  function prezziGiorno(G, da, a, t) {
+    const k = chiave(da, a), r = G.rotte[k]; if (!r) return prezziRotta(G, da, a);
+    const wk = [5, 6, 0].includes(loc(t).getUTCDay());
+    const f = (altaStagione(da, a, t) ? (r.alta || 1) : 1) * (wk ? (r.weekend || 1) : 1) * (1 - scontoPromozione(G, k, t));
+    return f === 1 ? r : { pY: r.pY * f, pW: r.pW * f, pJ: r.pJ * f };
+  }
+  // quota delle vendite per canale e costo medio di distribuzione sui biglietti
+  function canali(G) {
+    const C = G.canali || {}, M = G.mod || {};
+    let sito = 0.25 + (M.sito ? 0.1 : 0) + (M.app ? 0.1 : 0), aziende = C.aziende ? 0.25 : 0.12, ota = C.ota === false ? 0 : Math.max(0, 1 - sito - aziende);
+    if (C.ota === false) sito = 1 - aziende;
+    return { sito, aziende, ota, costo: sito * 0.008 + aziende * 0.03 + ota * 0.04 };
+  }
+  // notorietà del marchio città per città e voto medio dei passeggeri
+  function fattoreMarchio(G, da, a) {
+    const N = G.notorieta; if (!N) return 1;
+    const n = ((N[AP[da].citta] ?? 0.3) + (N[AP[a].citta] ?? 0.3)) / 2;
+    return (0.85 + 0.3 * n) * (1 + 0.06 * ((G.stelle ?? 3.2) - 3.2));
+  }
+  function giornoCommerciale(G) {
+    const S = statRecenti(G, 7);
+    for (const [k, r] of Object.entries(G.rotte)) { const x = S.rotte[k]; if (x && x.posti) r.lfRecente = x.pax / x.posti; }
+    G.promozioni = (G.promozioni || []).filter(p => p.fine > G.ora);
+    // notorietà: cresce dove voli spesso e fai pubblicità, cala dove sparisci
+    G.notorieta ||= {};
+    const dep = {}; for (const ae of flottaAttiva(G)) for (const l of mediaCiclo(ae).tratte) { const c = AP[l.da].citta; dep[c] = (dep[c] || 0) + l.peso * 7; }
+    const pubbl = {}; for (const c0 of G.campagne || []) if (c0.forza > 0.05) { if (c0.ambito === 'citta') pubbl[c0.obiettivo] = (pubbl[c0.obiettivo] || 0) + 0.15 * c0.forza; else if (c0.ambito === 'rotta') for (const i of c0.obiettivo.split('-')) pubbl[AP[i].citta] = (pubbl[AP[i].citta] || 0) + 0.08 * c0.forza; else for (const c of Object.keys(dep)) pubbl[c] = (pubbl[c] || 0) + 0.08 * c0.forza; }
+    for (const c of new Set([...Object.keys(G.notorieta), ...Object.keys(dep)])) {
+      const target = clamp(0.2 + Math.min(0.55, (dep[c] || 0) / 60) + Math.min(0.25, pubbl[c] || 0), 0, 1), n = G.notorieta[c] ?? 0.3;
+      G.notorieta[c] = n + (target - n) * 0.015;
+    }
+    // recensioni: puntualità, cancellazioni, servizio di bordo, coincidenze perse
+    const ieri = G.storico.at(-1);
+    if (ieri && ieri.voli) {
+      const punt = ieri.puntuali / ieri.voli, canc = ieri.canc / (ieri.voli + ieri.canc), nps = G.bordo ? (analisiProdotto(G).Y.nps / 100) : 0.3;
+      const voto = clamp(3.2 + (punt - 0.85) * 6 - canc * 8 + (nps - 0.3) * 2 - Math.min(0.5, (ieri.persi || 0) / 50) - Math.min(0.5, (ieri.negati || 0) / 30), 1, 5);
+      G.stelle = (G.stelle ?? 3.5) * 0.97 + voto * 0.03;
+    }
+  }
+
+  /* ---------- Flotta: invecchiamento, revisioni pesanti, contratti di leasing, ammodernamenti ---------- */
+  const REVISIONI = { C: { nome: 'Revisione C', giorni: 7, costoF: 4, ogni: 730 }, D: { nome: 'Revisione D', giorni: 25, costoF: 20, ogni: 2190 } };
+  const ANNI_LEASING = { 6: 1, 8: 0.95, 10: 0.92 };
+  const AMMODERNAMENTI = {
+    winglet: { nome: 'Alette alle estremità delle ali', fattore: 0.96, costo: m => 900000 * m.peso / 78, giorni: 4, ok: (ae, m) => m.tipo !== 'ATR' },
+    motori: { nome: 'Motori di nuova generazione', fattore: 0.9, costo: m => 5e6 * m.peso / 78, giorni: 20, ok: ae => ae.eta >= 6 }
+  };
+  function completaAereo(G, ae, nuovo) {
+    ae.consumoF ??= 1; ae.ammodernamenti ||= [];
+    const base = ae.stato === 'consegna' ? ae.fino : G.ora;
+    ae.prossimaC ??= base + (nuovo ? 730 : Math.floor(rnd() * 730)) * GIORNO;
+    ae.prossimaD ??= base + (nuovo ? 2190 : Math.floor(rnd() * 2190)) * GIORNO;
+    if (ae.modo === 'leasing' && !ae.leasingFine) ae.leasingFine = base + (nuovo ? 8 : 2 + Math.floor(rnd() * 5)) * 365 * GIORNO;
+  }
+  const costoRevisione = (G, ae, t) => Math.round(MOD[ae.modello].check * REVISIONI[t].costoF * (1 + ae.eta * 0.02) * ((G.mod || {}).hangar ? 0.7 : 1) * (G.manutenzioneInterna ? 0.65 : 1));
+  function pianificaRevisione(G, id, tipo, quando = 'subito') {
+    const ae = G.aerei.find(a => a.id === id), R0 = REVISIONI[tipo]; if (!ae || !R0) return err('Revisione non valida');
+    if (ae.lavori) return err('L’aereo ha già lavori programmati');
+    let inizio = fineGiornataAereo(G, ae);
+    if (quando === 'inverno') { const d = loc(G.ora), m = d.getUTCMonth(); if (!(m >= 10 || m <= 1)) inizio = Math.max(inizio, Date.UTC(d.getUTCFullYear(), 10, 10) - FUSO * ORA); }
+    ae.lavori = { tipo, inizio, fine: inizio + R0.giorni * GIORNO, costo: costoRevisione(G, ae, tipo) };
+    rigeneraAereo(G, ae);
+    notizia(G, `${ae.marche}: ${R0.nome.replace('Revisione', 'revisione')} dal ${dataDi(inizio)} per ${R0.giorni} giorni (${eur(ae.lavori.costo)}). In quei giorni l’aereo non vola: i suoi voli non vengono messi in vendita.`, 'info');
+    return ok(`${R0.nome} programmata`);
+  }
+  function giornoFlotta(G) {
+    const d = loc(G.ora), inverno = d.getUTCMonth() >= 10 || d.getUTCMonth() <= 1, auto = !G.esperto || (G.auto && G.auto.ispezioni);
+    for (const ae of flottaAttiva(G)) {
+      completaAereo(G, ae, false);
+      if (d.getUTCDate() === 1 && d.getUTCMonth() === 0) ae.eta++;
+      if (ae.stato === 'consegna' || ae.lavori) continue;
+      for (const t of ['D', 'C']) {
+        const manca = (ae['prossima' + t] - G.ora) / GIORNO;
+        if (manca < 60 && !ae['avviso' + t]) { ae['avviso' + t] = true; notizia(G, `${ae.marche}: ${REVISIONI[t].nome.replace('Revisione', 'revisione')} da fare entro il ${dataDi(ae['prossima' + t])}.`, 'info'); }
+        if (auto && manca < 120) { pianificaRevisione(G, ae.id, t, inverno || manca < 45 ? 'subito' : 'inverno'); break; }
+      }
+      // contratti di leasing in scadenza
+      if (ae.modo === 'leasing' && ae.leasingFine) {
+        const manca = (ae.leasingFine - G.ora) / GIORNO;
+        if (manca < 60 && !ae.avvisoLeasing) { ae.avvisoLeasing = true; notizia(G, `Il leasing di ${ae.marche} scade il ${dataDi(ae.leasingFine)}${G.esperto ? ': decidi se rinnovarlo o restituire l’aereo (Flotta)' : ': verrà rinnovato in automatico con un canone più basso'}.`, 'info', true); }
+        if (G.ora >= ae.leasingFine) { if (ae.restituire) restituisci(G, ae, false); else rinnovaLeasing(G, ae); }
+      }
+    }
+  }
+  function rinnovaLeasing(G, ae) {
+    ae.leasing = Math.round(ae.leasing * 0.85 / 100) * 100; ae.leasingFine = Math.max(G.ora, ae.leasingFine || G.ora) + 4 * 365 * GIORNO; ae.avvisoLeasing = false; ae.restituire = false;
+    notizia(G, `Leasing di ${ae.marche} rinnovato per 4 anni a ${eur(ae.leasing)} al giorno.`, 'info');
+  }
+  // costo per riconsegnare un aereo in leasing (ispezioni da fare, revisione vicina)
+  const costoRiconsegna = (G, ae) => (ae.oreDaCheck > 300 ? MOD[ae.modello].check : 0) + (ae.prossimaC - G.ora < 180 * GIORNO ? costoRevisione(G, ae, 'C') * 0.5 : 0);
+  function restituisci(G, ae, anticipata) {
+    const resto = Math.max(0, (ae.leasingFine - G.ora) / GIORNO), penale = anticipata ? Math.round(Math.min(resto, 365) * ae.leasing * 0.5) : 0, ric = Math.round(costoRiconsegna(G, ae));
+    G.cassa -= penale + ric; G.oggi.costi.altro = (G.oggi.costi.altro || 0) + penale + ric;
+    G.voli = G.voli.filter(v => !(v.ae === ae.id && v.stato === 'prog')); G.aerei = G.aerei.filter(a => a !== ae); G._roster = null;
+    notizia(G, `${ae.marche} restituito al locatore${penale ? `: penale ${eur(penale)}` : ''}${ric ? `, riconsegna ${eur(ric)}` : ''}.`, 'info');
+    return penale + ric;
+  }
+
+  /* ---------- Operazioni: aerei di riserva, riprotezione, congestione, diritti di traffico ---------- */
+  // un aereo dello stesso tipo, fermo nello stesso aeroporto e libero per il tempo del volo, può sostituirne uno guasto
+  function aereoDiRiserva(G, v, orig) {
+    if (G.irops && G.irops.riserva === false) return null;
+    const tipo = MOD[orig.modello].tipo, pax = venduti(v);
+    return flottaAttiva(G).find(x => x !== orig && x.stato === 'attivo' && !x.inVolo && !x.lavori && x.pos === v.da && MOD[x.modello].tipo === tipo && posti(x) >= pax &&
+      !G.voli.some(w => w.ae === x.id && w.stato === 'prog' && w.dep > v.dep - 30 * MIN && w.dep < v.arr + 3 * ORA)) || null;
+  }
+  function registraIrops(G, testo) { (G.iropsLog ||= []).unshift({ t: G.ora, testo }); if (G.iropsLog.length > 60) G.iropsLog.length = 60; }
+  // passeggeri di un volo cancellato spostati sul prossimo volo della stessa rotta (entro 24 ore)
+  function riproteggi(G, v) {
+    const pax = venduti(v); if (!pax || (G.irops && G.irops.riprotezione === false)) return 0;
+    const v2 = G.voli.find(w => w !== v && w.stato === 'prog' && w.da === v.da && w.a === v.a && w.dep > v.dep && w.dep < v.dep + 24 * ORA); if (!v2) return 0;
+    const ae2 = G.aerei.find(x => x.id === v2.ae); if (!ae2) return 0;
+    let spostati = 0;
+    for (const c of CL) { const tot = v.v[c] + v.t[c]; if (!tot) continue; const liberi = Math.max(0, ae2.cab[c] - v2.v[c] - v2.t[c]), n = Math.min(tot, liberi); if (!n) continue; v2.v[c] += n; v2.inc[c] += v.inc[c] * n / tot; spostati += n; }
+    if (spostati) registraIrops(G, `${spostati} passeggeri del ${v.num} riprotetti sul ${v2.num} delle ${oraIn(v2.dep)}.`);
+    return spostati;
+  }
+  // diritti di traffico tra paesi di continenti diversi
+  const chiaveDiritti = (a, b) => [AP[a].paese, AP[b].paese].sort().join('-');
+  const servonoDiritti = (a, b) => AP[a].continente !== AP[b].continente;
+  const dirittiOk = (G, a, b) => !servonoDiritti(a, b) || (G.diritti && G.diritti[chiaveDiritti(a, b)]?.stato === 'concessi');
+  function chiediDiritti(G, a, b) {
+    G.diritti ||= {}; const k = chiaveDiritti(a, b), x = G.diritti[k];
+    if (x && x.stato === 'concessi') return ok('Diritti già concessi');
+    if (x && x.stato === 'attesa') return ok(`Diritti in arrivo il ${dataDi(x.pronto)}`);
+    if (x && x.stato === 'negati' && G.ora < x.riprova) return err(`Diritti negati: puoi riprovare dal ${dataDi(x.riprova)}`);
+    paga(G, 50000, 'altro'); G.diritti[k] = { stato: 'attesa', pronto: G.ora + (30 + Math.floor(rnd() * 45)) * GIORNO };
+    notizia(G, `Chiesti i diritti di traffico ${k.replace('-', '–')}: risposta entro il ${dataDi(G.diritti[k].pronto)}. Fino ad allora i voli su quelle rotte non si vendono.`, 'info');
+    return ok('Richiesta dei diritti di traffico inviata');
+  }
+  function giornoOperazioni(G) {
+    for (const [k, x] of Object.entries(G.diritti || {})) if (x.stato === 'attesa' && G.ora >= x.pronto) {
+      if (rnd() < 0.88) { x.stato = 'concessi'; notizia(G, `Concessi i diritti di traffico ${k.replace('-', '–')}: i voli su quelle rotte vanno in vendita.`, 'buona', true); for (const ae of flottaAttiva(G)) rigeneraAereo(G, ae); }
+      else { x.stato = 'negati'; x.riprova = G.ora + 120 * GIORNO; notizia(G, `Negati i diritti di traffico ${k.replace('-', '–')}: potrai riprovare tra 4 mesi.`, 'cattiva', true); }
+    }
+  }
+
   /* ---------- Creazione e migrazione ---------- */
   // settimana dell'anno (per la sfida: stessa partenza per tutti nella stessa settimana)
   function settimanaSfida(t = Date.now()) { const d = new Date(t), g = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - g + 3); const y = d.getUTCFullYear(), w = 1 + Math.round((d - Date.UTC(y, 0, 4)) / 864e5 / 7); return { anno: y, n: w, seme: y * 100 + w }; }
   const BASI_SFIDA = ['FCO', 'MXP', 'LIN', 'BGY', 'NAP', 'BRI', 'CTA', 'VCE', 'BLQ', 'TRN', 'PMO', 'CAG'];
-  function nuovaPartita(scenId, { nome, codice, base }) {
+  function nuovaPartita(scenId, { nome, codice, base, seme }) {
     const S = D.SCENARI[scenId];
     let sfida = null;
-    if (scenId === 'sfida') { sfida = settimanaSfida(); rnd = generatoreSeme(sfida.seme); base = BASI_SFIDA[sfida.seme % BASI_SFIDA.length]; } else rnd = Math.random;
+    if (scenId === 'sfida') { sfida = settimanaSfida(); rnd = generatoreSeme(sfida.seme); base = BASI_SFIDA[sfida.seme % BASI_SFIDA.length]; } else rnd = seme ? generatoreSeme(seme) : Math.random;
     const b0 = S.preset === 'crisi' ? 'FCO' : (S.base || base || 'BRI');
     FUSO = AP[b0].fuso; const [ya, ma, da] = S.inizio, inizio = Date.UTC(ya, ma - 1, da, 5) - FUSO * ORA;
     const G = {
@@ -2359,7 +2637,7 @@ const SIM = (() => {
     return G;
   }
   function presetCrisi(G) {
-    G.nome = G.nome || 'Aliseo Airlines'; G.cassa = 0.8e6; G.reputazione = 36; G.morale = 42; G.stipendio = 0.95; G.carburante = 0.92;
+    G.nome = G.nome || 'Aliseo Airlines'; G.cassa = 2.5e6; G.reputazione = 36; G.morale = 42; G.stipendio = 0.95; G.carburante = 0.92;
     G.basi = ['FCO', 'MXP']; G.hub = ['FCO'];
     const apri = (a, b) => { const k = chiave(a, b); if (!G.rotte[k]) { const d = km(a, b), ref = prezzoRif(d); G.rotte[k] = { aperta: G.ora - 400 * GIORNO, pY: Math.round(ref * 0.85), pW: Math.round(ref * multClasse('W', d) * 0.85), pJ: Math.round(ref * multClasse('J', d) * 0.85) }; } };
     const piani = [
@@ -2379,6 +2657,7 @@ const SIM = (() => {
       for (const g of giorni) for (let i = 0; i < g[1].length - 1; i++) apri(g[1][i], g[1][i + 1]);
     }
     G.aerei[6].autoCheck = false; G.aerei[6].oreDaCheck = 640;
+    for (const ae of G.aerei) { ae.prossimaC = G.ora + (200 + Math.floor(rnd() * 500)) * GIORNO; ae.prossimaD = G.ora + (400 + Math.floor(rnd() * 1700)) * GIORNO; }
     for (const [i, n] of Object.entries(partenzePerScalo(G))) if (AP[i].slot) G.slot[i] = n + 1;
     G.equipaggi = []; G.fissi = {};
     for (const x of pianoAssunzioni(G)) nuovoEquipaggio(G, x);
@@ -2483,6 +2762,7 @@ const SIM = (() => {
       const d = km(a, b), ref = prezzoRif(d); paga(G, 30000);
       G.rotte[k] = { aperta: G.ora, pY: ref, pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) };
       notizia(G, `Aperta la rotta ${a}–${b} (${d} km). Campagna di lancio: ${eur(30000)}.`, 'buona'); controllaTraguardi(G);
+      if (!dirittiOk(G, a, b)) chiediDiritti(G, a, b);
       return ok('Rotta aperta');
     },
     chiudiRotta(G, k) {
@@ -2490,15 +2770,16 @@ const SIM = (() => {
       delete G.rotte[k]; return ok('Rotta chiusa');
     },
     prezzi(G, k, p) { const r = G.rotte[k]; for (const c of CL) if (p['p' + c] != null && !isNaN(p['p' + c])) r['p' + c] = clamp(Math.round(p['p' + c]), 10, 5000); vendite(G); return ok('Prezzi aggiornati'); },
-    compraNuovo(G, mod, modo, base, cab, attesa = 1) {
+    compraNuovo(G, mod, modo, base, cab, attesa = 1, anni = 8) {
+      anni = ANNI_LEASING[+anni] ? +anni : 8;
       const m = MOD[mod], e = validaCabina(mod, cab); if (e) return err(e);
       if (!annunciato(G, mod)) return err('Modello non ancora in vendita');
       attesa = [1, 12, 24].includes(+attesa) ? +attesa : 1;
       const sc = SCONTO_ATTESA[attesa], consegna = Math.max(G.ora + (attesa === 1 ? 30 : Math.round(attesa * 30.4)) * GIORNO, disponibileDal(G, mod) || 0), lungo = consegna - G.ora > 60 * GIORNO;
-      const prezzo = Math.round(m.prezzo * (1 - sc)), canone = Math.round(m.leasing * (1 - sc / 1.5) / 100) * 100;
+      const prezzo = Math.round(m.prezzo * (1 - sc)), canone = Math.round(m.leasing * (1 - sc / 1.5) * (modo === 'leasing' ? ANNI_LEASING[anni] : 1) / 100) * 100;
       const costo = modo === 'proprieta' ? (lungo ? Math.round(prezzo * 0.1) : prezzo) : canone * 30; if (G.cassa < costo) return err(`Servono ${eur(costo)} in cassa`);
-      G.cassa -= costo; if (modo === 'leasing') G.oggi.costi.altro += costo;
-      const ae = aggiungiAereo(G, mod, modo, base, { consegna, oreDaCheck: 0, cab, prezzo, leasing: canone });
+      G.cassa -= costo; if (modo === 'leasing') G.oggi.costi.altro += costo; else flusso(G, 'investimenti', -costo);
+      const ae = aggiungiAereo(G, mod, modo, base, { consegna, oreDaCheck: 0, cab, prezzo, leasing: canone }); if (modo === 'leasing') ae.leasingFine = consegna + anni * 365 * GIORNO;
       if (lungo) { ae.acconto = costo; if (modo === 'proprieta') ae.saldo = prezzo - costo; }
       if (lungo) { notizia(G, `Ordinato ${m.nome} (${ae.marche}) con consegna il ${dataDi(consegna)}: ${modo === 'proprieta' ? `acconto ${eur(costo)}, saldo ${eur(prezzo - costo)} alla consegna` : `canone ${eur(canone)} al giorno dalla consegna`}${sc ? ` (sconto ${Math.round(sc * 100)}%)` : ''}.`, 'info'); return ok('Ordine confermato'); }
       notizia(G, `Ordinato ${m.nome} ${modo === 'leasing' ? 'in leasing' : 'in proprietà'} (${ae.marche}, ${cab.J}J · ${cab.W}W · ${cab.Y}Y): consegna tra 30 giorni a ${base}.`, 'info');
@@ -2509,7 +2790,7 @@ const SIM = (() => {
       cab ||= o.cab; const e = validaCabina(o.mod, cab); if (e) return err(e);
       const cambia = CL.some(c => cab[c] !== o.cab[c]), extra = cambia ? 60000 + 800 * somma(cab) : 0;
       const costo = (modo === 'proprieta' ? o.prezzo : o.leasing * 30) + extra; if (G.cassa < costo) return err(`Servono ${eur(costo)} in cassa`);
-      G.cassa -= costo; G.oggi.costi.altro += costo - (modo === 'proprieta' ? o.prezzo : 0);
+      G.cassa -= costo; G.oggi.costi.altro += costo - (modo === 'proprieta' ? o.prezzo : 0); if (modo === 'proprieta') flusso(G, 'investimenti', -o.prezzo);
       const ae = aggiungiAereo(G, o.mod, modo, base, { eta: o.eta, ore: o.ore, prezzo: o.prezzo, leasing: o.leasing, consegna: G.ora + (cambia ? 9 : 5) * GIORNO, oreDaCheck: Math.round(rnd() * 300), cab });
       G.mercato = G.mercato.filter(x => x !== o);
       notizia(G, `Acquisito ${MOD[o.mod].nome} usato di ${o.eta} anni (${ae.marche})${cambia ? ', cabina rifatta' : ''}: consegna tra ${cambia ? 9 : 5} giorni.`, 'info');
@@ -2530,8 +2811,8 @@ const SIM = (() => {
     vendi(G, id) {
       const ae = G.aerei.find(a => a.id === id); if (!ae) return err('Aereo inesistente');
       if (ae.inVolo) return err('L’aereo è in volo: riprova quando è a terra');
-      const incasso = ae.modo === 'proprieta' ? Math.round(ae.valore * 0.92) : -ae.leasing * 60;
-      G.cassa += incasso; if (incasso < 0) G.oggi.costi.altro -= incasso;
+      const incasso = ae.modo === 'proprieta' ? Math.round(ae.valore * 0.92) : -(Math.round(Math.min(Math.max(0, ((ae.leasingFine || G.ora) - G.ora) / GIORNO), 365) * ae.leasing * 0.5) + Math.round(costoRiconsegna(G, ae)));
+      G.cassa += incasso; if (incasso < 0) G.oggi.costi.altro -= incasso; else flusso(G, 'investimenti', incasso);
       G.voli = G.voli.filter(v => !(v.ae === id && v.stato === 'prog'));
       G.aerei = G.aerei.filter(a => a !== ae); G._roster = null;
       notizia(G, ae.modo === 'proprieta' ? `${ae.marche} venduto per ${eur(incasso)}.` : `${ae.marche} restituito al locatore (penale ${eur(-incasso)}).`, 'info');
@@ -2559,7 +2840,7 @@ const SIM = (() => {
       controllaTraguardi(G); return ok('Hub attivato');
     },
     chiudiHub(G, i) { G.hub = G.hub.filter(b => b !== i); return ok('Hub chiuso: niente più coincidenze vendute qui'); },
-    compraSlot(G, i, n) { const costo = AP[i].slotPrezzo * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); G.cassa -= costo; G.slot[i] = (G.slot[i] || 0) + n; return ok(`Acquistati ${n} slot a ${i}`); },
+    compraSlot(G, i, n) { const costo = AP[i].slotPrezzo * n; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); G.cassa -= costo; flusso(G, 'investimenti', -costo); G.slot[i] = (G.slot[i] || 0) + n; return ok(`Acquistati ${n} slot a ${i}`); },
     assumiEquipaggio(G, { base, tipo, piloti = 2, cabina = 4, urgente = false, contratto = 'fisso' }) {
       if (contratto === 'agenzia') urgente = true;
       if (!G.basi.includes(base)) return err('Si assume solo nelle basi');
@@ -2697,6 +2978,45 @@ const SIM = (() => {
     scuolaPiloti(G) { return apriScuola(G); },
     trattativa(G, x) { return trattativa(G, x); },
     applicaPianoFlotta(G, P, opz) { return applicaPianoFlotta(G, P, opz); },
+    revisione(G, id, tipo, quando) { return pianificaRevisione(G, id, tipo, quando); },
+    leasing(G, id, scelta) { const ae = G.aerei.find(a => a.id === id); if (!ae || ae.modo !== 'leasing') return err('Non è un aereo in leasing');
+      if (scelta === 'rinnova') { rinnovaLeasing(G, ae); return ok('Leasing rinnovato'); }
+      if (scelta === 'restituisci') { ae.restituire = true; return ok(`${ae.marche} sarà restituito alla scadenza del contratto (${dataDi(ae.leasingFine)})`); }
+      if (scelta === 'tieni') { ae.restituire = false; return ok('Il contratto verrà rinnovato alla scadenza'); }
+      return err('Scelta non valida'); },
+    ammoderna(G, id, cosa) {
+      const ae = G.aerei.find(a => a.id === id), X = AMMODERNAMENTI[cosa]; if (!ae || !X) return err('Ammodernamento non valido');
+      const m = MOD[ae.modello]; if (!X.ok(ae, m)) return err(cosa === 'motori' ? 'Conviene solo su aerei di almeno 6 anni' : 'Non disponibile per questo modello');
+      if ((ae.ammodernamenti || []).includes(cosa)) return err('Già fatto'); if (ae.lavori) return err('L’aereo ha già lavori programmati');
+      const costo = Math.round(X.costo(m)); if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
+      G.cassa -= costo; flusso(G, 'investimenti', -costo);
+      const inizio = fineGiornataAereo(G, ae); ae.lavori = { tipo: 'ammodernamento', cosa, fattore: X.fattore, inizio, fine: inizio + X.giorni * GIORNO, costo: 0 }; ae.lavori.costoInvestito = costo; rigeneraAereo(G, ae);
+      return ok(`${X.nome}: lavori dal ${dataDi(inizio)} per ${X.giorni} giorni`);
+    },
+    diritti(G, a, b) { return chiediDiritti(G, a, b); },
+    irops(G, k, v) { G.irops ||= {}; if (!['riserva', 'riprotezione'].includes(k)) return err('Impostazione sconosciuta'); G.irops[k] = !!v; return ok('Centro operativo aggiornato'); },
+    esperto(G, v) { G.esperto = !!v; return ok(v ? 'Modalità esperto attiva: controlli tutto a mano' : 'Modalità semplice: il pilota automatico gestisce i dettagli'); },
+    aderisci(G, id) {
+      const X = ALLEANZE_G[id]; if (!X) return err('Alleanza sconosciuta'); if (G.globale) return err('Fai già parte di un’alleanza');
+      if (G.reputazione < 55) return err('Serve una reputazione di almeno 55'); if (flottaAttiva(G).length < 8) return err('Servono almeno 8 aerei');
+      if (G.cassa < QUOTA_GLOBALE) return err(`Quota d’ingresso: ${eur(QUOTA_GLOBALE)}`);
+      paga(G, QUOTA_GLOBALE, 'alleanze'); G.globale = id; G.reputazione = Math.min(100, G.reputazione + 2); vendite(G);
+      notizia(G, `${G.nome} entra in ${X.nome}: più passeggeri in coincidenza e nessuna guerra con gli altri membri.`, 'buona', true); return ok(`Benvenuto in ${X.nome}`);
+    },
+    lasciaAlleanza(G) { if (!G.globale) return err('Non fai parte di alleanze'); paga(G, 1e6, 'alleanze'); const n = ALLEANZE_G[G.globale].nome; G.globale = null; vendite(G); return ok(`Uscito da ${n} (penale 1 M€)`); },
+    promozione(G, k, sconto, giorni) {
+      if (!G.rotte[k]) return err('Rotta non aperta'); sconto = clamp(+sconto || 0.2, 0.05, 0.5); giorni = clamp(Math.round(+giorni || 14), 3, 60);
+      const costo = 3000; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); paga(G, costo, 'marketing');
+      G.promozioni.push({ k, sconto, inizio: G.ora, fine: G.ora + giorni * GIORNO }); vendite(G);
+      return ok(`Promozione −${Math.round(sconto * 100)}% su ${k.replace('-', '–')} per i voli dei prossimi ${giorni} giorni`);
+    },
+    tariffeRotta(G, k, x) {
+      const r = G.rotte[k]; if (!r) return err('Rotta non aperta');
+      if (x.promo !== undefined) r.promo = x.promo === null || x.promo === '' ? null : clamp(+x.promo, 0, 0.8);
+      if (x.alta != null) r.alta = clamp(+x.alta || 1, 0.7, 1.6); if (x.weekend != null) r.weekend = clamp(+x.weekend || 1, 0.7, 1.4);
+      vendite(G); return ok('Tariffe della rotta aggiornate');
+    },
+    canale(G, k, v) { G.canali ||= { ota: true, aziende: false }; if (!['ota', 'aziende'].includes(k)) return err('Canale sconosciuto'); G.canali[k] = !!v; vendite(G); return ok('Canali di vendita aggiornati'); },
     emergenza(G, i) { return decidiEmergenza(G, i); },
     impostazione(G, k, v) {
       const ok0 = { imprevisti: LIVELLI_IMPREVISTI, assicurazione: ASSICURAZIONI, benessere: BENESSERE };
@@ -2742,20 +3062,20 @@ const SIM = (() => {
       quota = clamp(quota, 0.1, 0.45);
       const cap = valoreEquo(G), nuove = AZIONI * quota / (1 - quota), prezzo = cap / AZIONI, incasso = Math.round(nuove * prezzo * 0.94);
       Object.assign(B, { quotata: true, azioni: AZIONI + nuove, mie: AZIONI, prezzo, storico: [{ t: G.ora, p: prezzo }], ipo: G.ora, dividendi: 0 });
-      G.cassa += incasso; G.cda.fiducia = Math.min(100, G.cda.fiducia + 5);
+      G.cassa += incasso; flusso(G, 'finanziamenti', incasso); G.cda.fiducia = Math.min(100, G.cda.fiducia + 5);
       notizia(G, `Quotazione in borsa riuscita: venduto il ${Math.round(quota * 100)}% a ${prezzo.toFixed(2)} € per azione, incassati ${eur(incasso)}.`, 'buona', true);
       return ok('Sei in borsa!');
     },
     aumentoCapitale(G, quota = 0.1) {
       const B = G.borsa; if (!B.quotata) return err('Prima serve la quotazione');
       const nuove = B.azioni * quota; if (B.mie / (B.azioni + nuove) < 0.51) return err('Scenderesti sotto il 51%: perderesti il controllo');
-      const incasso = Math.round(nuove * B.prezzo * 0.95); B.azioni += nuove; B.prezzo *= 0.96; G.cassa += incasso;
+      const incasso = Math.round(nuove * B.prezzo * 0.95); B.azioni += nuove; B.prezzo *= 0.96; G.cassa += incasso; flusso(G, 'finanziamenti', incasso);
       return ok(`Aumento di capitale: incassati ${eur(incasso)}`);
     },
     dividendo(G, importo) {
       const B = G.borsa; if (!B.quotata) return err('Prima serve la quotazione');
       importo = Math.round(importo); if (importo <= 0 || G.cassa < importo) return err('Cassa insufficiente');
-      G.cassa -= importo; B.dividendi += importo; B.prezzo *= 1 + Math.min(0.06, importo / (B.prezzo * B.azioni) * 2); G.cda.fiducia = Math.min(100, G.cda.fiducia + 3);
+      G.cassa -= importo; flusso(G, 'finanziamenti', -importo); B.dividendi += importo; B.prezzo *= 1 + Math.min(0.06, importo / (B.prezzo * B.azioni) * 2); G.cda.fiducia = Math.min(100, G.cda.fiducia + 3);
       return ok(`Dividendo di ${eur(importo)} pagato`);
     },
     riacquisto(G, importo) {
@@ -2767,18 +3087,35 @@ const SIM = (() => {
     },
     premio(G) { const costo = totPersonale(G) * 1500; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); paga(G, costo, 'personale'); G.morale = Math.min(100, G.morale + 12); return ok(`Premio distribuito (${eur(costo)}): morale +12`); },
     limitePrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return Math.max(0, Math.round((0.6 * f + 3e6 + Math.max(0, G.stat.utile) * 0.3 - debitoTot(G)) / 1e5) * 1e5); },
-    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return 0.05 + 0.04 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.02 : 0) + (G.cda && G.cda.fiducia < 25 ? 0.015 : 0); },
+    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return rating(G).tasso + 0.01 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.01 : 0); },
     prestito(G, importo) {
       if (importo <= 0 || importo > A.limitePrestito(G)) return err('Importo oltre il limite concesso dalla banca');
-      const tasso = A.tassoPrestito(G); G.debiti.push({ id: 'd' + (G.seq++), capitale: importo, tasso, rata: Math.round(importo / (5 * 365)) }); G.cassa += importo;
+      const tasso = A.tassoPrestito(G); G.debiti.push({ id: 'd' + (G.seq++), capitale: importo, tasso, rata: Math.round(importo / (5 * 365)) }); G.cassa += importo; flusso(G, 'finanziamenti', importo);
       return ok(`Prestito di ${eur(importo)} al ${(tasso * 100).toFixed(1)}% in 5 anni`);
     },
     rimborsa(G, id, importo) {
       const d = G.debiti.find(x => x.id === id); importo = Math.min(importo, d.capitale, Math.max(0, G.cassa)); if (importo <= 0) return err('Cassa insufficiente');
-      d.capitale -= importo; G.cassa -= importo; G.debiti = G.debiti.filter(x => x.capitale > 1); return ok(`Rimborsati ${eur(importo)}`);
+      d.capitale -= importo; G.cassa -= importo; flusso(G, 'finanziamenti', -importo); G.debiti = G.debiti.filter(x => x.capitale > 1); return ok(`Rimborsati ${eur(importo)}`);
+    },
+    obbligazione(G, importo, anni) {
+      const R0 = rating(G); if (R0.i > 3) return err(`Con un rating ${R0.sigla} nessuno compra le tue obbligazioni: serve almeno BB`);
+      anni = [3, 5, 7].includes(+anni) ? +anni : 5; importo = Math.round(+importo / 1e6) * 1e6;
+      const max = Math.max(5e6, Math.round(A.limitePrestito(G) * 1.5 / 1e6) * 1e6); if (importo < 5e6 || importo > max) return err(`Emissione tra 5 M€ e ${eur(max)}`);
+      const tasso = Math.round((R0.tasso - 0.005 + (anni - 5) * 0.002) * 1000) / 1000;
+      G.debiti.push({ id: 'b' + (G.seq++), tipo: 'obbligazione', capitale: importo, tasso, rata: 0, scadenza: G.ora + anni * 365 * GIORNO }); G.cassa += importo * 0.985; paga(G, 0, 'altro'); flusso(G, 'finanziamenti', importo * 0.985);
+      return ok(`Emesse obbligazioni per ${eur(importo)} al ${(tasso * 100).toFixed(1)}% per ${anni} anni (capitale rimborsato tutto alla scadenza)`);
+    },
+    coperturaCambio(G, mesi) {
+      mesi = [6, 12].includes(+mesi) ? +mesi : 6; const premio = Math.round(usdGiornalieri(G) * 30 * mesi * 0.008); if (G.cassa < premio) return err(`Servono ${eur(premio)}`);
+      paga(G, premio, 'altro'); G.coperturaCambio = { cambio: G.cambio, fine: G.ora + mesi * 30 * GIORNO }; return ok(`Cambio euro/dollaro bloccato a ${G.cambio.toFixed(3)} per ${mesi} mesi (premio ${eur(premio)})`);
+    },
+    coperturaCarburante(G, mesi) {
+      mesi = [3, 6, 12].includes(+mesi) ? +mesi : 6; const u = G.storico.slice(-30), carb = u.length ? u.reduce((s, x) => s + (x.dettaglio?.carburante || 0), 0) / u.length : 0, premio = Math.round(carb * 30 * mesi * 0.02);
+      if (G.cassa < premio) return err(`Servono ${eur(premio)}`); paga(G, premio, 'altro'); G.copertura = { prezzo: G.carburante * 1.02, fine: G.ora + mesi * 30 * GIORNO };
+      return ok(`Cherosene bloccato a ${(G.carburante * 1.02).toFixed(2)} €/kg per ${mesi} mesi (premio ${eur(premio)})`);
     }
   };
 
-  return { settimanaSfida, LIVELLI_IMPREVISTI, ASSICURAZIONI, BENESSERE, CONTRATTI, fattoreLavoro, fattorePaga, pianoRiserve, assente, generatoreSeme, impostaRnd: f => { rnd = f || Math.random; }, pianificaFlotta, stimaPersonalePiano, generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { ALLEANZE_G, QUOTA_GLOBALE, CANONE_GLOBALE, contiRivale, REVISIONI, AMMODERNAMENTI, ANNI_LEASING, costoRevisione, costoRiconsegna, dirittiOk, servonoDiritti, chiaveDiritti, segmenti, mixTariffe, quotaPromo, canali, altaStagione, fattoreMarchio, SCAGLIONI, indicatori, contoEconomico, statoPatrimoniale, rating, RATING, settimanaSfida, LIVELLI_IMPREVISTI, ASSICURAZIONI, BENESSERE, CONTRATTI, fattoreLavoro, fattorePaga, pianoRiserve, assente, generatoreSeme, impostaRnd: f => { rnd = f || Math.random; }, pianificaFlotta, stimaPersonalePiano, generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

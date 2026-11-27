@@ -709,3 +709,16 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
 .simboli-marchio button { width: 44px; height: 44px; padding: 8px; }
 .simboli-marchio button svg { width: 100%; height: 100%; fill: currentColor; }
 .simboli-marchio button.on { border-color: var(--marchio, var(--accento)); box-shadow: inset 0 0 0 1px var(--marchio, var(--accento)); }
+
+/* ---------- Finanza, previsioni, marchio ---------- */
+.schede-fin { flex-wrap: wrap; }
+table.bilancio td { padding: 6px 8px; }
+table.bilancio td.rientro { padding-left: 22px; color: var(--testo-2); }
+table.bilancio tr.tot td { border-top: 1px solid var(--bordo-forte); font-weight: 600; }
+.previsione { display: flex; align-items: flex-end; gap: 4px; height: 90px; margin: 6px 0 18px; }
+.previsione span { flex: 1; background: var(--series-1); border-radius: 3px 3px 0 0; position: relative; min-height: 3px; }
+.previsione span.pieno { background: var(--err); } .previsione span.vuoto { background: var(--testo-3); }
+.previsione i { position: absolute; bottom: -16px; left: 0; right: 0; text-align: center; font: 500 10px/1 var(--f-mono); color: var(--testo-3); font-style: normal; }
+.stelle { font-size: 28px; color: var(--segnale-2); margin: 4px 0; letter-spacing: 2px; }
+.stelle b { font: 700 20px/1 var(--f-titolo); color: var(--testo); margin-left: 6px; letter-spacing: 0; }
+table.bilancio td { white-space: normal; } table.bilancio td.num { white-space: nowrap; }
