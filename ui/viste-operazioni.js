@@ -37,7 +37,7 @@ const SCEN = () => D.SCENARI[G.scenario];
 
 VISTE.panoramica = () => `
   <div class="testata"><h1>${h(G.nome)}</h1><span class="sotto">${SCEN().nome} · giorno ${Math.floor((G.ora - G.inizio) / GIORNO) + 1} · basi ${G.basi.join(', ')}${G.hub.length ? ' · hub ' + G.hub.join(', ') : ''}</span></div>
-  ${bannerDilemma()}${bannerTrattativa()}${bannerRiunione()}${primiPassi()}
+  ${bannerEmergenza()}${bannerDilemma()}${bannerTrattativa()}${bannerRiunione()}${primiPassi()}
   <div class="griglia g2 sopra"><div class="pannello" id="consigli">${consigliHTML()}</div><div class="pannello" id="missioni">${missioniHTML()}</div></div>
   <div class="griglia g-21 mt">
     <div class="pannello"><div id="mappaPosto"></div><p class="nota">Aerei in volo in blu, a terra in grigio, in manutenzione in giallo, guasti in rosso. Basi in blu, hub con l’anello giallo. Le rotte tratteggiate sono aperte ma senza voli.</p></div>

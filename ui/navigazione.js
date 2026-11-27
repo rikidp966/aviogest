@@ -21,7 +21,7 @@ const areaDi = v => AREE.find(a => a.pagine.some(p => p[0] === v) || (a.extra ||
 function badgeArea(id) {
   if (!G) return 0;
   if (id === 'azienda') return riunioneAperta();
-  if (id === 'oggi') return G.dilemma ? 1 : 0;
+  if (id === 'oggi') return (G.dilemma ? 1 : 0) + (G.emergenza ? 1 : 0);
   if (id === 'flotta') return (SIM.copertura(G).scoperte ? 1 : 0) + (G.trattativa ? 1 : 0);
   return 0;
 }

@@ -56,16 +56,16 @@ VISTE.personale = () => {
     <div><small>Ore di volo medie</small><b>${num(cop.oreMedie, 1)} h</b><span>per equipaggio a settimana (max ${SIM.MAX_ORE})</span></div>
     <div><small>Morale</small><b>${Math.round(G.morale)}/100</b><span>${G.morale < 30 ? 'rischio sciopero!' : G.morale < 50 ? 'basso' : 'buono'}</span></div>
   </div>
-  ${bannerTrattativa()}${bannerMancanti()}${pannelliLavoro()}`;
+  ${bannerTrattativa()}${bannerMancanti()}${pannelliLavoro()}${pannelliPersonale()}`;
   for (const b of G.basi) {
     const eqB = G.equipaggi.filter(e => e.base === b), scop = r.scoperte.filter(c => c.base === b);
     s += `<div class="pannello"><div class="testata" style="margin-bottom:8px"><h2 style="margin:0">Base di ${h(citta(b))} (${b})${G.hub.includes(b) ? ' · hub' : ''}</h2><span class="sotto">${eqB.length} equipaggi${scop.length ? ` · <span class="neg">${scop.length} turni scoperti</span>` : ''}</span></div>
       ${eqB.length ? `${schedeEquipaggi(eqB, r)}<div class="tab-wrap solo-desktop"><table><thead><tr><th>Equipaggio</th><th>Abilitazione</th><th>Composizione</th><th class="num">Turni</th><th>Ore di volo</th><th class="num">Paga/giorno</th><th>Stato</th><th></th></tr></thead><tbody>
       ${eqB.map(e => { const x = r.carico.get(e.id) || { turni: 0, min: 0 };
-        return `<tr><td><b class="mono">${h(e.nome)}</b> <span class="muto">cpt. ${h(e.capo)}</span></td><td>${e.tipo}</td><td>${e.piloti} piloti + ${e.cabina} cabina</td><td class="num">${x.turni}/${SIM.MAX_TURNI}</td>
+        return `<tr><td><b class="mono">${h(e.nome)}</b> <span class="muto">cpt. ${h(e.capo)}</span><br><span class="piccolo muto">${infoEq(e)}</span></td><td>${e.tipo}</td><td>${e.piloti} piloti + ${e.cabina} cabina</td><td class="num">${x.turni}/${SIM.MAX_TURNI}</td>
         <td>${barretta(x.min / 60 / SIM.MAX_ORE, num(x.min / 60, 1) + ' h', [0.9, 1])}</td><td class="num">${eur(SIM.pagaEquipaggio(e) * G.stipendio)}</td>
-        <td>${e.stato === 'attivo' ? (x.turni ? '<span class="badge b-ok">In servizio</span>' : '<span class="badge">Riserva</span>') : `<span class="badge b-info">Dal ${fmtGiorno(e.pronto)}</span> <span class="muto piccolo">${h(e.motivo)}</span>`}</td>
-        <td>${G.basi.length > 1 ? `<button class="piccolo" data-az="eq-trasferisci" data-id="${e.id}">Trasferisci</button> ` : ''}<button class="piccolo" data-az="eq-riqualifica" data-id="${e.id}">Riqualifica</button> <button class="piccolo pericolo" data-az="eq-licenzia" data-id="${e.id}">Licenzia</button></td></tr>`; }).join('')}
+        <td>${statoEq(e, x)}</td>
+        <td class="azioni-riga">${azioniEq(e)}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<p class="muto">Nessun equipaggio in questa base.</p>'}
       ${settimanaEquipaggi(b, eqB, r, scop)}</div>`;
   }
@@ -80,8 +80,8 @@ VISTE.personale = () => {
 };
 function schedeEquipaggi(eqB, r) {
   return `<div class="schede solo-mobile">${eqB.map(e => { const x = r.carico.get(e.id) || { turni: 0, min: 0 };
-    return `<div class="scheda"><div class="riga"><b class="mono">${h(e.nome)}</b>${e.stato === 'attivo' ? (x.turni ? '<span class="badge b-ok">In servizio</span>' : '<span class="badge">Riserva</span>') : `<span class="badge b-info">Dal ${fmtGiorno(e.pronto)}</span>`}</div>
-      <div class="piccolo muto">cpt. ${h(e.capo)} · ${e.tipo} · ${e.piloti} piloti + ${e.cabina} cabina · ${eur(SIM.pagaEquipaggio(e) * G.stipendio)} al giorno</div>
+    return `<div class="scheda"><div class="riga"><b class="mono">${h(e.nome)}</b>${statoEq(e, x)}</div>
+      <div class="piccolo muto">cpt. ${h(e.capo)} · ${infoEq(e)} · ${e.tipo} · ${e.piloti} piloti + ${e.cabina} cabina · ${eur(SIM.pagaEquipaggio(e) * G.stipendio)} al giorno</div>
       <div class="piccolo">${x.turni}/${SIM.MAX_TURNI} turni</div>${barretta(x.min / 60 / SIM.MAX_ORE, num(x.min / 60, 1) + ' h di volo', [0.9, 1])}
       <div class="azioni">${G.basi.length > 1 ? `<button class="piccolo" data-az="eq-trasferisci" data-id="${e.id}">Trasferisci</button>` : ''}<button class="piccolo" data-az="eq-riqualifica" data-id="${e.id}">Riqualifica</button><button class="piccolo pericolo" data-az="eq-licenzia" data-id="${e.id}">Licenzia</button></div></div>`; }).join('')}</div>`;
 }
@@ -104,12 +104,13 @@ function formNuovoEquipaggio(pre = {}) {
       <label>Base<select id="neBase">${opzioni(G.basi.map(b => [b, `${b} · ${citta(b)}`]), pre.base || G.basi[0])}</select></label>
       <label>Abilitazione<select id="neTipo">${opzioni(TIPI().map(t => [t, t + (tipiFlotta.includes(t) ? ' · in flotta' : '')]), tipo)}</select></label>
       <label>Piloti<select id="nePiloti">${opzioni([[2, '2 (comandante e primo ufficiale)'], [3, '3 (lungo raggio e turni oltre 13 ore)']], pre.piloti || 2)}</select></label>
+      <label>Contratto<select id="neContratto">${opzioni([['fisso', 'A tempo indeterminato'], ['stagionale', 'Stagionale (fino a fine ottobre, paga −15%, assunzione a metà prezzo)']], 'fisso')}</select></label>
       <label>Persone in cabina<input type="number" id="neCabina" min="1" max="16" value="${pre.cabina || 4}"><span class="aiuto">1 ogni 50 posti dell’aereo più grande che dovrà servire</span></label>
     </div><p class="piccolo mt" id="neCosto"></p>`,
-    piede: `<button data-az="chiudi">Annulla</button><button data-az="conferma-ne" data-urg="1">Urgente · 2 giorni</button><button class="primario" data-az="conferma-ne">Assumi · 10 giorni</button>` });
+    piede: `<button data-az="chiudi">Annulla</button><button data-az="conferma-ne" data-urg="1">Agenzia · 2 giorni · paga +25%</button><button class="primario" data-az="conferma-ne">Assumi</button>` });
   costoNuovo();
 }
-function costoNuovo() { const e = { piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value || 1 }; const p = $('#neCosto'); if (p) p.innerHTML = `Costo: <b>${eur(SIM.costoAssunzione(e, false))}</b> (operativo in 10 giorni) oppure <b>${eur(SIM.costoAssunzione(e, true))}</b> urgente (2 giorni). Paga: ${eur(SIM.pagaEquipaggio(e) * G.stipendio)} al giorno.`; }
+function costoNuovo() { const e = { piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value || 1 }, st = $('#neContratto')?.value === 'stagionale', p = $('#neCosto'); if (p) p.innerHTML = `Costo: <b>${eur(SIM.costoAssunzione(e, false) * (st ? 0.5 : 1))}</b> (operativo in ${SIM.giorniAssunzione(false)} giorni${st ? ', contratto fino a fine ottobre' : ''}) oppure <b>${eur(SIM.costoAssunzione(e, true))}</b> tramite agenzia (2 giorni, paga +25% finché non lo assumi a tempo indeterminato). Paga di base nella sede scelta ×${SIM.fattoreLavoro($('#neBase').value).toFixed(2)}.`; }
 
 /* Aeroporti */
 VISTE.aeroporti = () => {
@@ -151,7 +152,7 @@ VISTE.finanze = () => {
       <tr><td><b>Utile</b></td><td class="num"><b>${segno(ieri?.utile || 0)}</b></td><td class="num"><b>${segno(u7.utile)}</b></td><td class="num"><b>${segno(u30.utile)}</b></td></tr>
     </tbody></table></div></div>
     <div class="pannello"><h2>Prestiti</h2>
-      ${G.debiti.length ? `<table><thead><tr><th class="num">Capitale</th><th class="num">Tasso</th><th class="num">Rata/g</th><th></th></tr></thead><tbody>${G.debiti.map(d => `<tr><td class="num">${eur(d.capitale)}</td><td class="num">${(d.tasso * 100).toFixed(1)}%</td><td class="num">${eur(d.rata)}</td><td><input type="number" class="prezzo" id="rimb-${d.id}" min="0" step="100000" value="${Math.min(d.capitale, Math.max(0, Math.floor(G.cassa / 1e5) * 1e5))}"> <button class="piccolo" data-az="rimborsa" data-id="${d.id}">Rimborsa</button></td></tr>`).join('')}</tbody></table>` : '<p class="muto">Nessun prestito in corso.</p>'}
+      ${G.debiti.length ? `<div class="tab-wrap"><table><thead><tr><th class="num">Capitale</th><th class="num">Tasso</th><th class="num">Rata/g</th><th></th></tr></thead><tbody>${G.debiti.map(d => `<tr><td class="num">${eur(d.capitale)}</td><td class="num">${(d.tasso * 100).toFixed(1)}%</td><td class="num">${eur(d.rata)}</td><td><input type="number" class="prezzo" id="rimb-${d.id}" min="0" step="100000" value="${Math.min(d.capitale, Math.max(0, Math.floor(G.cassa / 1e5) * 1e5))}"> <button class="piccolo" data-az="rimborsa" data-id="${d.id}">Rimborsa</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muto">Nessun prestito in corso.</p>'}
       <h3 class="mt">Nuovo prestito</h3>
       <p class="piccolo">La banca ti concede fino a <b>${eur(lim)}</b> al <b>${(tasso * 100).toFixed(1)}%</b> annuo, da restituire in 5 anni con rate giornaliere.</p>
       <div class="filtri"><input type="number" id="importoPrestito" min="0" step="500000" value="${Math.min(lim, 5e6)}" style="width:140px"><button data-az="prestito" ${lim <= 0 ? 'disabled' : ''}>Chiedi prestito</button></div></div>

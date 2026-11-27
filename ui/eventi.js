@@ -26,6 +26,10 @@ document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset.az === 'autocheck') return AZ.autocheck(el);
   if (el.dataset.fed) { esito(SIM.A.fedelta(G, { [el.dataset.fed]: el.value })); render(); return; }
+  if (el.dataset.imp) { esito(SIM.A.impostazione(G, el.dataset.imp, el.dataset.imp === 'quotaRiserve' ? +el.value : el.value)); render(); return; }
+  if (el.dataset.impChk) { esito(SIM.A.impostazione(G, el.dataset.impChk, el.checked)); render(); return; }
+  if (el.dataset.handling) { esito(SIM.A.handling(G, el.dataset.handling, el.checked)); render(); return; }
+  if (el.id === 'neContratto') { costoNuovo(); return; }
   if (el.id === 'pianoUrgente') { UI.pianoUrgente = el.checked; disegnaPianificatore(); return; }
   if (el.id === 'edizione') { UI.edizione = +el.value; render(); return; }
   if (el.id === 'safQuota') { esito(SIM.A.saf(G, +el.value)); render(); return; }
@@ -49,7 +53,7 @@ document.addEventListener('change', ev => {
   if (el.id === 'cmAmbito') { aggiornaObiettivi(); stimaCampagna(); return; }
   if (el.id === 'cmOb' || el.id === 'cmGiorni' || el.id === 'cmBudget') { stimaCampagna(); return; }
   if (el.classList.contains('sel-eq')) { esito(SIM.A.fissaEquipaggio(G, el.dataset.turno, el.value || null)); aggiornaEditor(); const bp = $('#bannerProg'); if (bp) bp.innerHTML = bannerMancanti(); return; }
-  if (el.id === 'nePiloti') { costoNuovo(); return; }
+  if (el.id === 'nePiloti' || el.id === 'neBase') { costoNuovo(); return; }
   if (el.classList.contains('ora-volo')) {
     const g = bozza.giorni[bozza.sel], k = +el.dataset.leg, ae = G.aerei.find(a => a.id === bozza.aeId);
     const att = (g.attese || []).slice(); att[k] = 0;
@@ -102,3 +106,5 @@ window.addEventListener('beforeunload', () => { if (G && Archivio.server) naviga
 
 menuIniziale();
 requestAnimationFrame(loop);
+// app installabile e giocabile anche offline
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => { });

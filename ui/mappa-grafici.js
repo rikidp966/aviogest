@@ -50,13 +50,13 @@ const Mappa = {
     for (const k of Object.keys(G.rotte)) {
       const [a, b] = k.split('-'); serviti.add(a); serviti.add(b);
       const on = attive.has(k);
-      L.polyline(arco(AP[a], AP[b]), { color: '#2a78d6', weight: on ? 2.5 : 1.5, opacity: on ? 0.7 : 0.35, dashArray: on ? null : '5 6' }).addTo(this.lRotte);
+      L.polyline(arco(AP[a], AP[b]), { color: (G.marchio?.colore || '#2a78d6'), weight: on ? 2.5 : 1.5, opacity: on ? 0.7 : 0.35, dashArray: on ? null : '5 6' }).addTo(this.lRotte);
     }
     for (const i of Object.keys(AP)) if (!serviti.has(i)) L.circleMarker([AP[i].lat, AP[i].lon], { radius: 3, color: '#7b8799', weight: 1, fillColor: '#b9c3d0', fillOpacity: 0.8 }).bindTooltip(`<b>${i}</b> · ${h(AP[i].citta)}`).on('click', () => apriAeroporto(i)).addTo(this.lScali);
     for (const i of serviti) {
       const base = G.basi.includes(i), hub = G.hub.includes(i);
       if (hub) L.circleMarker([AP[i].lat, AP[i].lon], { radius: 13, color: '#c98500', weight: 3, fill: false }).addTo(this.lScali);
-      L.circleMarker([AP[i].lat, AP[i].lon], { radius: base ? 7 : 4.5, color: '#fff', weight: 2, fillColor: base ? '#2a78d6' : '#12213a', fillOpacity: 1 })
+      L.circleMarker([AP[i].lat, AP[i].lon], { radius: base ? 7 : 4.5, color: '#fff', weight: 2, fillColor: base ? (G.marchio?.colore || '#2a78d6') : '#12213a', fillOpacity: 1 })
         .bindTooltip(`<b>${i}</b> · ${h(AP[i].nome)}${hub ? '<br>Hub' : base ? '<br>Base' : ''}`).on('click', () => apriAeroporto(i)).addTo(this.lScali);
     }
   },
@@ -72,7 +72,7 @@ const Mappa = {
         const A = AP[v.da], B = AP[v.a], f = Math.max(0, Math.min(1, (G.ora - v.depEff) / (v.arrEff - v.depEff)));
         [lat, lon] = puntoArco(A, B, f); const [la2, lo2] = puntoArco(A, B, Math.min(1, f + 0.01));
         rot = Math.atan2((lo2 - lon) * Math.cos(lat * Math.PI / 180), la2 - lat) * 180 / Math.PI;
-        colore = '#2a78d6'; desc = `<b>${ae.marche}</b> · volo ${v.num}<br>${v.da} → ${v.a} · arrivo ${fmtOra(v.arrEff)}<br>${SIM.venduti(v)}/${SIM.posti(ae)} passeggeri${somma(v.t) ? ` (${somma(v.t)} in coincidenza)` : ''}`;
+        colore = (G.marchio?.colore || '#2a78d6'); desc = `<b>${ae.marche}</b> · volo ${v.num}<br>${v.da} → ${v.a} · arrivo ${fmtOra(v.arrEff)}<br>${SIM.venduti(v)}/${SIM.posti(ae)} passeggeri${somma(v.t) ? ` (${somma(v.t)} in coincidenza)` : ''}`;
       } else {
         const p = AP[v && v.stato === 'rit' ? v.da : ae.pos] || AP[ae.base];
         lat = p.lat + Math.sin(idx * 2.4) * 0.12; lon = p.lon + Math.cos(idx * 2.4) * 0.12; rot = (idx * 47) % 360;
