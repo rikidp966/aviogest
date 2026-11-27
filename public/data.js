@@ -306,6 +306,36 @@ const DATI = (() => {
       obiettivi: 'Collega 5 continenti e porta il valore della compagnia a 400 M€ entro 5 anni.',
       cassa: 150e6, flotta: [['A339', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']],
       equipaggi: [['A330', 7, 3, 6], ['A320', 6, 2, 4]]
+    },
+    lowcost: {
+      nome: 'La low cost europea', difficolta: 'Normale', durata: 1095, inizio: g(2027, 3, 1), sceltaBase: true,
+      descr: 'Quattro A320 in leasing, 25 milioni e una sola regola: prezzi bassi, servizi a pagamento e aerei pieni.',
+      obiettivi: 'Trasporta 1,5 milioni di passeggeri e accumula 20 M€ di utile entro 3 anni.',
+      cassa: 25e6, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']], equipaggi: [['A320', 12, 2, 4]]
+    },
+    golfo: {
+      nome: 'Il grande hub del Golfo', difficolta: 'Difficile', durata: 1460, inizio: g(2027, 3, 1), base: 'DOH', mondo: true,
+      descr: 'Doha, 250 milioni, due 787 e due A321XLR. Diventa il punto d’incontro tra Europa, Asia e Africa.',
+      obiettivi: 'Porta a 5.000 al giorno i passeggeri in transito e collega 5 continenti entro 4 anni.',
+      cassa: 250e6, flotta: [['B789', 'leasing'], ['B789', 'leasing'], ['A21X', 'leasing'], ['A21X', 'leasing']], equipaggi: [['B787', 8, 3, 8], ['A320', 8, 2, 4]]
+    },
+    tempesta: {
+      nome: 'La tempesta perfetta', difficolta: 'Molto difficile', durata: 365, inizio: g(2027, 1, 10), base: 'FCO',
+      descr: 'Domanda crollata in Europa, cherosene alle stelle, 20 milioni di debiti e cinque A320 in leasing. Resisti.',
+      obiettivi: 'Arriva a fine anno senza fallire, con la cassa positiva e la reputazione sopra 40.',
+      cassa: 8e6, slot: { FCO: 16 }, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']], equipaggi: [['A320', 15, 2, 4]]
+    },
+    scalata: {
+      nome: 'Scalata', difficolta: 'Difficile', durata: 1095, inizio: g(2027, 3, 1), sceltaBase: true,
+      descr: '120 milioni e tre A320: cresci in fretta e compra i concorrenti prima che comprino il mercato.',
+      obiettivi: 'Compra due concorrenti e porta il valore della compagnia a 600 M€ entro 3 anni.',
+      cassa: 120e6, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']], equipaggi: [['A320', 9, 2, 4]]
+    },
+    sfida: {
+      nome: 'Sfida della settimana', difficolta: 'Sfida', durata: 90, inizio: g(2027, 3, 1),
+      descr: 'Stessa base, stesso mercato e stessi imprevisti per tutti: la partenza cambia ogni lunedì.',
+      obiettivi: 'Il valore più alto della compagnia dopo 90 giorni: confrontalo con gli amici.',
+      cassa: 30e6, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['ATR72', 'leasing']], equipaggi: [['A320', 6, 2, 4], ['ATR', 3, 2, 2]]
     }
   };
 

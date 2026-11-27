@@ -34,6 +34,7 @@ VISTE.impostazioni = () => {
       ${riga('opz-pausa', 'Pausa sugli eventi importanti', 'Il tempo si ferma quando arriva una notizia importante (guasti, eventi, guerre dei prezzi).', UI.pausaAuto)}
       ${riga('opz-suoni', 'Suoni', 'Effetti sonori per voli, eventi e missioni.', UI.suoni)}</div>
   </div>
+  ${pannelloRealismo()}
   ${pannelloPartita()}`;
 };
 

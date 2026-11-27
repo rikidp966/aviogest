@@ -4,6 +4,14 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  'apri-emergenza': () => apriEmergenza(),
+  emergenza: el => { if (esito(SIM.A.emergenza(G, +el.dataset.i))) { chiudiModale(); dopoAzione(); } },
+  marchio: el => { const M = G.marchio || {}; esito(SIM.A.impostazione(G, 'marchio', { colore: el.dataset.colore || M.colore, simbolo: el.dataset.simbolo || M.simbolo })); applicaMarchio(); Mappa.disegnaRete(); render(); },
+  'assumi-riserve': () => { if (esito(SIM.A.assumiRiserve(G))) render(); },
+  'sondaggio-clima': () => { if (esito(SIM.A.sondaggioClima(G))) render(); },
+  'corso-cabina': () => conferma('Corso di servizio per la cabina?', `Costa ${eur(150000 + 1000 * G.equipaggi.length)}: per un anno i passeggeri apprezzano di più il servizio di bordo, e il morale sale un po’.`, 'Fai il corso', () => { if (esito(SIM.A.corsoCabina(G))) render(); }),
+  'eq-riserva': el => { esito(SIM.A.riserva(G, el.dataset.id, !!el.dataset.si)); render(); },
+  'eq-stabilizza': el => { if (esito(SIM.A.stabilizza(G, el.dataset.id))) render(); },
   pianifica: () => apriPianificatore(),
   'applica-piano': () => { const r = SIM.A.applicaPianoFlotta(G, UI.pianoFlotta, { urgente: !!UI.pianoUrgente }); if (esito(r) || r.errore) { chiudiModale(); bozza = null; UI.pianoFlotta = null; if (pagina !== 'programmazione') location.hash = '#/programmazione'; dopoAzione(); } },
   'firma-carta': el => { if (esito(SIM.A.firmaCarta(G, el.dataset.id))) render(); },
@@ -158,7 +166,7 @@ const AZ = {
   'assumi-eq': el => { if (esito(SIM.A.assumiEquipaggio(G, { base: el.dataset.b, tipo: el.dataset.t, piloti: +el.dataset.p, cabina: +el.dataset.c, urgente: !!el.dataset.urg }))) render(); },
   'assumi-mancanti': el => { const urg = !!el.dataset.urg, st = SIM.A.stimaMancanti(G, urg); conferma(`Assumere ${st.n} equipaggi?`, `Costo ${eur(st.costo)}. Saranno operativi tra ${urg ? '2 giorni (agenzia, costo ×2,5)' : '10 giorni'}; fino ad allora i turni scoperti restano senza equipaggio.`, 'Assumi', () => { esito(SIM.A.assumiMancanti(G, urg)); render(); }); },
   'nuovo-equipaggio': () => formNuovoEquipaggio(),
-  'conferma-ne': el => { if (esito(SIM.A.assumiEquipaggio(G, { base: $('#neBase').value, tipo: $('#neTipo').value, piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value, urgente: !!el.dataset.urg }))) { chiudiModale(); render(); } },
+  'conferma-ne': el => { if (esito(SIM.A.assumiEquipaggio(G, { base: $('#neBase').value, tipo: $('#neTipo').value, piloti: +$('#nePiloti').value, cabina: +$('#neCabina').value, urgente: !!el.dataset.urg, contratto: el.dataset.urg ? 'agenzia' : ($('#neContratto')?.value || 'fisso') }))) { chiudiModale(); render(); } },
   'eq-licenzia': el => { const e = G.equipaggi.find(x => x.id === el.dataset.id); conferma(`Licenziare l’equipaggio ${e.nome}?`, `Buonuscita di ${eur(SIM.pagaEquipaggio(e) * 60)} e morale in calo. I suoi turni passeranno ad altri equipaggi, se ce ne sono di liberi.`, 'Licenzia', () => { esito(SIM.A.licenziaEquipaggio(G, e.id)); render(); }); },
   'eq-trasferisci': el => { const e = G.equipaggi.find(x => x.id === el.dataset.id); modale({ titolo: `Trasferire ${e.nome}`, corpo: `<div class="form"><label>Nuova base<select id="trBase">${opzioni(G.basi.filter(b => b !== e.base).map(b => [b, `${b} · ${citta(b)}`]), '')}</select></label></div><p class="nota">${eur(3000 * SIM.persone(e))}, operativo nella nuova base dopo 5 giorni.</p>`, piede: `<button data-az="chiudi">Annulla</button><button class="primario" data-az="conferma-trasf-eq" data-id="${e.id}">Trasferisci</button>` }); },
   'conferma-trasf-eq': el => { if (esito(SIM.A.trasferisciEquipaggio(G, el.dataset.id, $('#trBase').value))) { chiudiModale(); render(); } },

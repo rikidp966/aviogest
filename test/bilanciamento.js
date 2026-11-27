@@ -27,12 +27,15 @@ giorni(G, 70, 7);
 controlla('Crisi senza interventi: fallisce (1 = sì)', G.esito && G.esito.tipo === 'fallimento' ? 1 : 0, 1, 1);
 
 // 3. Compagnia in crisi gestita: prezzi +25%, equipaggi, ispezioni
-G = SIM.nuovaPartita('crisi', { nome: 'Test', codice: 'TT' });
-for (const k in G.rotte) { const r = G.rotte[k]; SIM.A.prezzi(G, k, { pY: r.pY * 1.25, pW: r.pW * 1.25, pJ: r.pJ * 1.25 }); }
-G.stipendio = 1.05; for (const a of G.aerei) a.autoCheck = true; SIM.A.assumiMancanti(G, true);
-giorni(G, 120, 10);
-controlla('Crisi gestita: utile al giorno (120 gg)', media(G, 30, 'utile'), 5000, 150000, eur);
-controlla('Crisi gestita: non fallisce (1 = sì)', G.esito && G.esito.tipo === 'fallimento' ? 0 : 1, 1, 1);
+// il giocatore decide le emergenze con la prima opzione (la più prudente); media di due partite con numeri casuali fissi
+const decidi = G => { if (G.emergenza) SIM.A.emergenza(G, 0); if (G.dilemma) SIM.A.dilemma(G, G.dilemma.opzioni.length - 1); };
+const crisiGestita = seme => { const g = SIM.nuovaPartita('crisi', { nome: 'Test', codice: 'TT' }); SIM.impostaRnd(SIM.generatoreSeme(seme));
+  for (const k in g.rotte) { const r = g.rotte[k]; SIM.A.prezzi(g, k, { pY: r.pY * 1.25, pW: r.pW * 1.25, pJ: r.pJ * 1.25 }); }
+  g.stipendio = 1.05; for (const a of g.aerei) a.autoCheck = true; SIM.A.assumiMancanti(g, true);
+  giorni(g, 120, 1, decidi); return g; };
+const c1 = crisiGestita(2027), c2 = crisiGestita(4242);
+controlla('Crisi gestita: utile al giorno (120 gg, media di 2)', (media(c1, 30, 'utile') + media(c2, 30, 'utile')) / 2, 5000, 150000, eur);
+controlla('Crisi gestita: non fallisce (1 = sì)', [c1, c2].some(g => g.esito && g.esito.tipo === 'fallimento') ? 0 : 1, 1, 1);
 
 // 4. Partita libera: stima delle proposte contro il risultato reale
 G = SIM.nuovaPartita('libera', { nome: 'Test', codice: 'TT', base: 'LIN' });
@@ -43,12 +46,13 @@ const k = SIM.chiave(pr[0].da, pr[0].a), S = SIM.statRecenti(G, 14).rotte[k], re
 controlla('Libera: margine reale / stima della proposta', reale / pr[0].utile, 0.6, 1.4, v => v.toFixed(2));
 
 // 5. Prezzo migliore: con +30% deve rendere più che al prezzo di riferimento e meno che al doppio
-const prova = f => { const g = SIM.nuovaPartita('libera', { nome: 'T', codice: 'TT', base: 'LIN' }); g.id = 'fisso';
+// stessi numeri casuali per ogni prezzo: così cambia solo il prezzo, non gli imprevisti
+const prova = (f, seme = 12345) => { const g = SIM.nuovaPartita('libera', { nome: 'T', codice: 'TT', base: 'LIN' }); g.id = 'fisso'; SIM.impostaRnd(SIM.generatoreSeme(seme));
   ['ATH', 'MAD'].forEach((d, i) => SIM.A.applicaRotazione(g, g.aerei[i].id, SIM.rotazioneGuidata(g, g.aerei[i].id, { tipo: 'navetta', dest: [d], giri: 2 })));
   for (const x in g.rotte) { const r = g.rotte[x]; SIM.A.prezzi(g, x, { pY: r.pY * f, pW: r.pW * f, pJ: r.pJ * f }); }
   SIM.avanza(g, 50 * SIM.GIORNO); return [media(g, 15, 'utile'), riempimento(g, 15)]; };
 // media di due partite per ogni prezzo: gli eventi casuali (guasti, meteo) pesano molto su 50 giorni
-const due = f => { const a = prova(f), b = prova(f); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+const due = f => { const a = prova(f, 12345), b = prova(f, 777); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
 const [u1, lf1] = due(1), [u13] = due(1.3), [u2, lf2] = due(2);
 controlla('Prezzi ×1,3 rendono più che ×1', u13 / Math.max(1, u1), 1.05, 3, v => v.toFixed(2));
 controlla('Prezzi ×2 non rendono molto più di ×1,3', u2 / Math.max(1, u13), 0, 1.15, v => v.toFixed(2));

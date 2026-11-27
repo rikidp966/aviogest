@@ -49,6 +49,7 @@ function gestisciNovita() {
   else for (const n of forti) { toast(n.testo, n.festa ? 'buona' : n.tipo); suono(n.tipo === 'buona' || n.festa ? 'buona' : n.tipo === 'cattiva' ? 'cattiva' : 'evento'); }
   if (UI.pausaAuto && nuove.some(n => n.imp)) pausa = true;
   if (nuove.length) aggiornaCampanella();
+  if (nuove.some(n => n.emergenza) && G.emergenza) { vel = 0; aggiornaVel(); setTimeout(apriEmergenza, 50); }
   if (pausa && vel) { vel = 0; aggiornaVel(); }
   if (G._salva) { G._salva = false; salva(); }
   if (G.esito && !G.esito.visto) mostraEsito();
@@ -177,7 +178,7 @@ function avviaPartita(g) {
   G = SIM.migra(g); G._nuove = []; vel = 0; bozza = null; UI.aereoSel = null;
   $('#menu-iniziale').hidden = true; $('#app').hidden = false;
   $('#nomeCompagnia').textContent = G.nome; $('#scenarioNome').textContent = SCEN().nome;
-  costruisciCima(); Mappa.reset();
+  costruisciCima(); Mappa.reset(); applicaMarchio();
   if (location.hash !== '#/panoramica') location.hash = '#/panoramica'; else render();
 }
 
