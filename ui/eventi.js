@@ -31,6 +31,10 @@ document.addEventListener('change', ev => {
   if (el.dataset.handling) { esito(SIM.A.handling(G, el.dataset.handling, el.checked)); render(); return; }
   if (el.id === 'neContratto') { costoNuovo(); return; }
   if (el.id === 'pianoUrgente') { UI.pianoUrgente = el.checked; disegnaPianificatore(); return; }
+  if (el.dataset.rt) { esito(SIM.A.tariffeRotta(G, el.dataset.k, { [el.dataset.rt]: el.value === '' ? null : +el.value })); render(); return; }
+  if (el.dataset.canale) { esito(SIM.A.canale(G, el.dataset.canale, el.checked)); render(); return; }
+  if (el.dataset.irops) { esito(SIM.A.irops(G, el.dataset.irops, el.checked)); render(); return; }
+  if (el.dataset.esperto) { esito(SIM.A.esperto(G, el.checked)); render(); return; }
   if (el.id === 'edizione') { UI.edizione = +el.value; render(); return; }
   if (el.id === 'safQuota') { esito(SIM.A.saf(G, +el.value)); render(); return; }
   if (el.id === 'importaFile' && el.files[0]) { importaPartita(el.files[0]); return; }

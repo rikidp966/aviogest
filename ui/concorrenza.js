@@ -17,6 +17,7 @@ function cartaRivale(R) {
     <div class="riga"><span>Reputazione · prezzi</span><span>${Math.round(R.rep)}/100 · ${R.prezzo < 0.9 ? 'low cost' : R.prezzo > 1.1 ? 'premium' : 'nella media'}</span></div>
     <div class="riga"><span>Rete</span><span>${Object.keys(R.rotte).length} rotte · circa ${aerei} aerei</span></div>
     <div class="riga"><span>Salute finanziaria</span><span>${intel || R.crisi ? '' : '<span class="muto piccolo">serve l’analisi della concorrenza</span>'}</span></div>
+    ${intel && R.conti ? `<div class="riga"><span>Conti</span><span>${mln(R.conti.ricavi)} di ricavi al giorno · utile ${mln(R.conti.utile)} · aerei pieni al ${pct(R.conti.lf)}</span></div><div class="riga"><span>Cassa</span><span>${mln(R.cassa || 0)}</span></div>` : ''}
     ${intel || R.crisi ? barretta(R.forza / 100, R.forza < 18 ? 'in crisi' : R.forza < 40 ? 'debole' : R.forza > 65 ? 'solida' : 'nella norma', [2, 2]) : ''}
     ${alleatoCon ? `<p class="piccolo">Alleata con <span class="pallino" style="background:${alleatoCon.colore}"></span>${h(alleatoCon.nome)}</p>` : ''}
     ${comuni.length ? `<p class="piccolo">Rotte in comune con te: ${comuni.map(k => linkRotta(k)).join(' · ')}</p>` : ''}
@@ -37,6 +38,7 @@ VISTE.concorrenza = () => {
   const domani = SIM.giornoDopo(SIM.mezzanotte(G.ora)), mie = [...SIM.rotteInEsercizio(G)], costoAll = Object.values(G.alleanze || {}).reduce((s, a) => s + SIM.LIVELLI_ALLEANZA[a.livello].quotidiano, 0);
   return `<div class="testata"><h1>Concorrenza</h1><span class="sotto">${G.rivali.length} concorrenti · ${Object.keys(G.alleanze || {}).length} accordi${costoAll ? ` (${eur(costoAll)} al giorno)` : ''}${G.jv?.length ? ` · ${G.jv.length} joint venture` : ''}</span></div>
   ${G.acquisizioni?.length ? `<div class="pannello"><h2>Le tue acquisizioni</h2><ul class="elenco">${G.acquisizioni.map(a => `<li><b>${h(a.nome)}</b><span class="muto piccolo">${fmtGiorno(a.t)} · ${a.aerei} aerei · ${a.rotte} rotte · base ${a.hub}</span><span class="spazio"></span>${eur(a.prezzo)}</li>`).join('')}</ul></div>` : ''}
+  ${pannelloAlleanzeGlobali()}
   <div class="carte mt">${G.rivali.map(cartaRivale).join('')}</div>
   <div class="pannello mt"><h2>Quote di mercato sulle tue rotte (domani)</h2><div class="tab-wrap">${mie.length ? `<table><thead><tr><th>Rotta</th><th>Tu</th><th>Concorrenti</th><th>Altri mezzi e compagnie</th></tr></thead><tbody>
     ${mie.map(k => { const [a, b] = k.split('-'), f = Math.max(1, Math.round(freqRotta(k) / 2)), am = SIM.analisiMercato(G, a, b, domani, f, G.rotte[k].pY);

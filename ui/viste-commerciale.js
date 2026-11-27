@@ -148,7 +148,8 @@ VISTE.marketing = () => {
         <div class="piccolo">Forza dell’effetto</div>${barretta(c.forza, pct(c.forza), [2, 2])}
         <div class="riga"><span>Effetto stimato</span><b>+${num(e.pax)} pax · +${eur(e.ricavi)} al giorno</b></div>
         ${c.attiva ? `<div class="azioni"><button class="piccolo pericolo" data-az="ferma-campagna" data-id="${c.id}">Ferma</button></div>` : ''}</div>`; }).join('')}</div>` : '<p class="muto">Nessuna campagna. Scegli un canale qui sopra.</p>'}
-    <p class="nota">L’effetto cresce col budget ma sempre meno (rendimenti decrescenti) e serve solo se hai posti liberi: su voli già pieni conviene alzare i prezzi. Le stime confrontano le vendite di domani con e senza la campagna, a parità di prezzi e posti. Sui voli da e per un hub, parte dei passeggeri in più prende il posto di chi viaggia in coincidenza: lì l’effetto reale sui ricavi può essere minore.</p></div>`;
+    <p class="nota">L’effetto cresce col budget ma sempre meno (rendimenti decrescenti) e serve solo se hai posti liberi: su voli già pieni conviene alzare i prezzi. Le stime confrontano le vendite di domani con e senza la campagna, a parità di prezzi e posti. Sui voli da e per un hub, parte dei passeggeri in più prende il posto di chi viaggia in coincidenza: lì l’effetto reale sui ricavi può essere minore.</p></div>
+  ${pannelloMarchio()}`;
 };
 function formCampagna(canale) {
   const M = D.MARKETING[canale];

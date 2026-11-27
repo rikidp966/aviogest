@@ -4,6 +4,18 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  'tab-fin': el => { UI.tabFin = el.dataset.t; render(); },
+  'periodo-ce': el => { UI.periodoCE = +el.dataset.n; render(); },
+  obbligazione: () => { if (esito(SIM.A.obbligazione(G, +$('#impObbl').value, +$('#anniObbl').value))) render(); },
+  'cop-carb': el => conferma('Bloccare il prezzo del cherosene?', 'Paghi un premio adesso e il prezzo resta quello di oggi per il periodo scelto.', 'Blocca', () => { if (esito(SIM.A.coperturaCarburante(G, +el.dataset.m))) render(); }),
+  'cop-cambio': el => conferma('Bloccare il cambio euro/dollaro?', 'Paghi un premio adesso; leasing e carburante si pagheranno al cambio di oggi per il periodo scelto.', 'Blocca', () => { if (esito(SIM.A.coperturaCambio(G, +el.dataset.m))) render(); }),
+  promozione: el => { if (esito(SIM.A.promozione(G, el.dataset.k, +el.dataset.s, +el.dataset.g))) render(); },
+  revisione: el => { if (esito(SIM.A.revisione(G, el.dataset.id, el.dataset.t, el.dataset.q || 'subito'))) render(); },
+  ammoderna: el => { const X = SIM.AMMODERNAMENTI[el.dataset.c]; conferma(`${X.nome}?`, `Consumi −${Math.round((1 - X.fattore) * 100)}% per sempre. L’aereo resta a terra ${X.giorni} giorni.`, 'Procedi', () => { if (esito(SIM.A.ammoderna(G, el.dataset.id, el.dataset.c))) render(); }); },
+  'leasing-scelta': el => { esito(SIM.A.leasing(G, el.dataset.id, el.dataset.s)); render(); },
+  diritti: el => { const [p1, p2] = el.dataset.k.split('-'), a = Object.values(AP).find(x => x.paese === p1)?.iata, b = Object.values(AP).find(x => x.paese === p2)?.iata; if (a && b && esito(SIM.A.diritti(G, a, b))) render(); },
+  aderisci: el => { const X = SIM.ALLEANZE_G[el.dataset.id]; conferma(`Entrare in ${X.nome}?`, `Quota d’ingresso ${eur(SIM.QUOTA_GLOBALE)} e ${eur(SIM.CANONE_GLOBALE)} al giorno. Più passeggeri in coincidenza e pace con tutti i membri.`, 'Aderisci', () => { if (esito(SIM.A.aderisci(G, el.dataset.id))) render(); }); },
+  'lascia-alleanza': () => conferma('Uscire dall’alleanza?', 'Penale di 1 M€; i membri tornano concorrenti a tutti gli effetti.', 'Esci', () => { esito(SIM.A.lasciaAlleanza(G)); render(); }),
   'apri-emergenza': () => apriEmergenza(),
   emergenza: el => { if (esito(SIM.A.emergenza(G, +el.dataset.i))) { chiudiModale(); dopoAzione(); } },
   marchio: el => { const M = G.marchio || {}; esito(SIM.A.impostazione(G, 'marchio', { colore: el.dataset.colore || M.colore, simbolo: el.dataset.simbolo || M.simbolo })); applicaMarchio(); Mappa.disegnaRete(); render(); },
@@ -131,7 +143,7 @@ const AZ = {
   'compra-usato': el => { const o = G.mercato.find(x => x.id === el.dataset.id); formAcquisto({ mod: o.mod, usato: o.id }); },
   'conferma-acquisto': el => {
     const modo = $('#acqModo').value, base = $('#acqBase').value, cab = leggiCab();
-    const r = el.dataset.usato ? SIM.A.compraUsato(G, el.dataset.usato, modo, base, cab) : SIM.A.compraNuovo(G, el.dataset.mod, modo, base, cab, +($('#acqAttesa')?.value || 1));
+    const r = el.dataset.usato ? SIM.A.compraUsato(G, el.dataset.usato, modo, base, cab) : SIM.A.compraNuovo(G, el.dataset.mod, modo, base, cab, +($('#acqAttesa')?.value || 1), +($('#acqAnni')?.value || 8));
     if (esito(r)) { chiudiModale(); render(); }
   },
   'sel-aereo': el => { UI.aereoSel = el.dataset.id; bozza = null; if (pagina !== 'programmazione') location.hash = '#/programmazione'; else render(); },

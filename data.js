@@ -283,7 +283,7 @@ const DATI = (() => {
     },
     crisi: {
       nome: 'Compagnia in crisi', difficolta: 'Difficile', durata: 365, inizio: g(2027, 1, 10),
-      descr: 'Aliseo Airlines: 7 aerei, tanti debiti, reputazione a terra e prezzi sbagliati. Il consiglio ti dà un anno.',
+      descr: 'Aliseo Airlines: 7 aerei, 30 milioni di debiti, reputazione a terra e prezzi sbagliati. Il consiglio ti dà un anno.',
       obiettivi: 'Porta i debiti sotto 5 M€ e la reputazione sopra 60 entro un anno, senza fallire.',
       preset: 'crisi'
     },

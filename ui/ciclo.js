@@ -129,7 +129,7 @@ async function menuIniziale() {
         <span class="pass-lab">Obiettivo</span><p class="pass-ob">${h(s.obiettivi)}</p></span>
       <span class="pass-stub"><span class="pass-lab">Posto</span><span class="codice">${['1A', '2C', '3F', '4D', '5K'][i] || '6B'}</span>
         <span class="pass-lab">Durata</span><b>${s.durata ? Math.round(s.durata / 365 * 10) / 10 + ' anni' : 'libera'}</b>
-        <span class="pass-lab">Capitale</span><b>${s.cassa ? mln(s.cassa) : '0,8 M€'}</b><i class="barcode"></i></span></button>`).join('')}</div>
+        <span class="pass-lab">Capitale</span><b>${s.cassa ? mln(s.cassa) : '2,5 M€'}</b><i class="barcode"></i></span></button>`).join('')}</div>
     <div class="pannello mt"><div class="form">
       <label class="campo">Nome della compagnia<input id="nNome" value="${UI.scenarioSel === 'crisi' ? 'Aliseo Airlines' : 'Volaria'}" maxlength="30"></label>
       <label class="campo">Codice volo (2 lettere)<input id="nCodice" value="${UI.scenarioSel === 'crisi' ? 'AL' : 'VL'}" maxlength="2"></label>
