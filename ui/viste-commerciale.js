@@ -4,7 +4,7 @@
 /* Rotte e prezzi */
 VISTE.rotte = () => {
   const righe = Object.entries(G.rotte).sort((a, b) => a[0].localeCompare(b[0]));
-  return `<div class="testata"><h1>Rotte e prezzi</h1><span class="sotto">${righe.length} rotte aperte</span><span class="spazio"></span><button class="primario" data-az="apri-rotta">+ Apri nuova rotta</button></div>
+  return `<div class="testata"><h1>Rotte e prezzi</h1><span class="sotto">${righe.length} rotte aperte</span><span class="spazio"></span><button data-az="pianifica">🧭 Pianifica la flotta</button><button class="primario" data-az="apri-rotta">+ Apri nuova rotta</button></div>
   <div class="pannello"><div class="tab-wrap">${righe.length ? `<table><thead><tr><th>Rotta</th><th class="num">Km</th><th class="num">Voli/sett.</th><th>Business</th><th>Premium</th><th>Economy</th><th>Quota</th><th>Concorrenti</th><th>Load factor 7 gg</th><th class="num">Ricavi 7 gg</th><th class="num">Utile voli 7 gg</th><th></th></tr></thead><tbody>
     ${righe.map(([k, r]) => { const [a, b] = k.split('-'), d = SIM.km(a, b), ref = SIM.prezzoRif(d), s = statsRotta(k), riv = SIM.rivaliSu(G, a, b), f = freqRotta(k);
       const sal = salute().rotte[k];

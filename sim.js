@@ -1032,7 +1032,7 @@ const SIM = (() => {
     const m = MOD[ae.modello], b = G.basi.includes(base) ? base : G.basi.includes(ae.base) ? ae.base : G.basi[0], [X, Y] = dest;
     if (!X || X === b) return err('Scegli la destinazione');
     if (['alterna', 'triangolo', 'weekend'].includes(tipo) && (!Y || Y === b || Y === X)) return err('Scegli la seconda destinazione (diversa dalla prima)');
-    const tratte = tipo === 'triangolo' ? [[b, X], [X, Y], [Y, b]] : [[b, X], ...(Y && tipo !== 'navetta' && tipo !== 'lungo' ? [[b, Y]] : [])];
+    const tratte = tipo === 'multi' ? [...new Set(dest)].map(d => [b, d]) : tipo === 'triangolo' ? [[b, X], [X, Y], [Y, b]] : [[b, X], ...(Y && tipo !== 'navetta' && tipo !== 'lungo' ? [[b, Y]] : [])];
     for (const [p, q] of tratte) if (km(p, q) > m.autonomia) return err(`${p}–${q} è lunga ${km(p, q)} km: oltre l’autonomia del ${m.nome} (${m.autonomia} km)`);
     const nuove = [...new Set(tratte.map(([p, q]) => chiave(p, q)))].filter(k => !G.rotte[k]);
     const T = { ...G, rotte: { ...G.rotte } };
@@ -1068,6 +1068,7 @@ const SIM = (() => {
     if (tipo === 'navetta') { best = uniforme([X], giri); descr = best && `${ar(best.n)} ${b}–${X} al giorno, partenza alle ${best.ora}`; }
     else if (tipo === 'alterna') { best = uniforme([X, Y], giri); descr = best && `${ar(best.n)} al giorno alternando ${X} e ${Y}, partenza alle ${best.ora}`; }
     else if (tipo === 'triangolo') { best = uniforme([[X, Y]], giri); descr = best && `${best.n} ${best.n === 1 ? 'giro' : 'giri'} ${b}→${X}→${Y}→${b} al giorno, partenza alle ${best.ora}`; }
+    else if (tipo === 'multi') { best = uniforme(dest, giri); descr = best && `${ar(best.n)} al giorno da ${b} verso ${[...new Set(dest)].join(', ')}, partenza alle ${best.ora}`; }
     else if (tipo === 'weekend') {
       const fer = uniforme([X], giri), fest = uniforme([Y], giri);
       if (fer && fest) for (let a = fer.n; a >= 1 && !best; a--) for (let c = fest.n; c >= 1 && !best; c--) for (const o1 of CANDIDATI_ORA) {
@@ -1963,6 +1964,123 @@ const SIM = (() => {
     return { costo: base, giorni: giorniAssunzione(urgente), cadetti: 0 };
   }
 
+  /* ---------- Pianificatore automatico di tutta la flotta ---------- */
+  // 1) ogni rotta aperta che tocca una base riceve almeno un andata e ritorno al giorno;
+  // 2) gli aerei che hanno ancora tempo libero prendono altri voli dove la domanda li regge e il margine è più alto.
+  // Usa solo le rotte già aperte; segnala quelle che non riesce a coprire e gli slot da comprare.
+  const MINUTI_GIORNO = 1000;
+  function partenzeProg(ae, prog) {
+    const max = {};
+    for (const g of prog.giorni) { const c = {}; for (const l of legsGiorno(ae, g, prog.turn)) c[l.da] = (c[l.da] || 0) + 1; for (const i in c) max[i] = Math.max(max[i] || 0, c[i]); }
+    return max;
+  }
+  function pianificaFlotta(G, opz = {}) {
+    const aerei = flottaAttiva(G), domani = giornoDopo(mezzanotte(G.ora)), unita = [], scoperte = [];
+    if (!aerei.length) return err('Non hai aerei');
+    const turnDi = ae => MOD[ae.modello].lungo ? 90 : MOD[ae.modello].tipo === 'ATR' ? 35 : 40;
+    const blocco = (ae, d) => 2 * (durata(d, ae.modello) + turnDi(ae));
+    // stima del margine di n andata e ritorno al giorno su una rotta, con aerei da "posti" posti
+    const margine = (k, base, dest, n, posti, mod) => {
+      if (n <= 0) return 0;
+      const r = G.rotte[k], d = km(base, dest), am = analisiMercato(G, base, dest, domani, n, r.pY, 1, { stima: true });
+      const paxVolo = Math.min(posti, am.pax / Math.max(0.3, am.maturita) / n);
+      return 2 * n * (paxVolo * r.pY * 1.12 - costoVoloStimato(G, mod, d, paxVolo));
+    };
+    for (const k of Object.keys(G.rotte)) {
+      const [a, c] = k.split('-'), basiK = [a, c].filter(i => G.basi.includes(i)), d = km(a, c);
+      if (!basiK.length) { scoperte.push({ k, motivo: 'non tocca nessuna tua base: gli aerei partono e dormono nelle basi' }); continue; }
+      const adatti = aerei.filter(ae => MOD[ae.modello].autonomia >= d);
+      if (!adatti.length) { scoperte.push({ k, motivo: `nessun aereo della flotta arriva a ${num(d)} km` }); continue; }
+      const base = basiK.sort((x, y) => adatti.filter(ae => ae.base === y).length - adatti.filter(ae => ae.base === x).length)[0], dest = a === base ? c : a;
+      const lungo = d > 4000, rif = adatti.slice().sort((x, y) => Math.abs(posti(x) - 180) - Math.abs(posti(y) - 180))[0], seats = posti(rif);
+      // quanti andata e ritorno reggerebbe la domanda (riempimento almeno ~78%)
+      let ideale = 1;
+      if (!lungo) for (let n = 2; n <= 6; n++) { const am = analisiMercato(G, base, dest, domani, n, G.rotte[k].pY, 1, { stima: true }); if (am.pax / Math.max(0.3, am.maturita) / (n * seats) >= 0.78) ideale = n; else break; }
+      unita.push({ k, base, dest, d, lungo, obbligatoria: true, valore: margine(k, base, dest, 1, seats, rif.modello) });
+      for (let n = 2; n <= ideale; n++) unita.push({ k, base, dest, d, lungo, obbligatoria: false, valore: margine(k, base, dest, n, seats, rif.modello) - margine(k, base, dest, n - 1, seats, rif.modello) });
+    }
+    // assegnazione agli aerei
+    const stati = aerei.map(ae => ({ ae, base: null, unita: [], min: 0, lungo: false }));
+    const idoneita = (st, u) => {
+      const ae = st.ae, m = MOD[ae.modello];
+      if (m.autonomia < u.d || st.lungo || (st.base && st.base !== u.base)) return null;
+      if (u.lungo) { if (st.unita.length) return null; }
+      else if (st.min + blocco(ae, u.d) > MINUTI_GIORNO) return null;
+      let p = 0;
+      if (!u.lungo && m.lungo) p += 3;                                   // un widebody su una tratta breve spreca posti
+      if (u.lungo && !m.lungo && aerei.some(x => MOD[x.modello].lungo && MOD[x.modello].autonomia >= u.d)) p += 2;
+      if (m.tipo === 'ATR' && u.d > 900) p += 1;
+      if (ae.base !== u.base) p += 1.5;                                   // spostare un aereo in un'altra base
+      if (!st.unita.length) p += 0.5;                                     // meglio riempire un aereo già usato
+      return p;
+    };
+    const assegna = u => {
+      let best = null, bp = Infinity;
+      for (const st of stati) { const p = idoneita(st, u); if (p != null && p < bp) { bp = p; best = st; } }
+      if (!best) return false;
+      best.base = u.base; best.unita.push(u); best.min += u.lungo ? MINUTI_GIORNO : blocco(best.ae, u.d); if (u.lungo) best.lungo = true;
+      return true;
+    };
+    const obbl = unita.filter(u => u.obbligatoria).sort((x, y) => (y.lungo - x.lungo) || (y.d - x.d));
+    for (const u of obbl) if (!assegna(u)) scoperte.push({ k: u.k, motivo: 'non c’è un aereo libero adatto: servono più aerei' });
+    const extra = unita.filter(u => !u.obbligatoria && u.valore > 0).sort((x, y) => y.valore - x.valore);
+    for (const u of extra) assegna(u);
+    // costruzione delle settimane, togliendo voli finché gli orari non tornano
+    const piani = [], ferme = [];
+    for (const st of stati) {
+      if (!st.unita.length) { ferme.push(st.ae.id); continue; }
+      let lista = st.unita.slice(), r = null;
+      // ordine alternato: A, B, A, C... così le mete si mescolano nella giornata
+      const ordina = l => { const per = {}; for (const u of l) (per[u.dest] ||= []).push(u); const g = Object.values(per).sort((x, y) => y.length - x.length), out = []; while (g.some(x => x.length)) for (const x of g) if (x.length) out.push(x.shift()); return out; };
+      while (lista.length) {
+        const l = ordina(lista);
+        r = st.lungo ? rotazioneGuidata(G, st.ae.id, { tipo: 'lungo', dest: [l[0].dest], base: st.base }) : rotazioneGuidata(G, st.ae.id, { tipo: 'multi', dest: l.map(u => u.dest), giri: l.length, base: st.base });
+        if (r.ok) break;
+        // via prima un volo facoltativo, poi uno obbligatorio
+        const i = lista.map(u => u.obbligatoria).lastIndexOf(false), j = i >= 0 ? i : lista.length - 1;
+        if (lista[j].obbligatoria) scoperte.push({ k: lista[j].k, motivo: 'gli orari non tornano con gli altri voli dell’aereo' });
+        lista.splice(j, 1);
+      }
+      if (!r || !r.ok) { ferme.push(st.ae.id); continue; }
+      piani.push({ aeId: st.ae.id, marche: st.ae.marche, modello: st.ae.modello, base: st.base, spostato: st.base !== st.ae.base, prog: r.prog, descr: r.descr, voliSett: r.voliSett, oreSett: r.oreSett, rotte: [...new Set(lista.map(u => u.k))] });
+    }
+    // slot: somma delle partenze di tutta la flotta con i nuovi programmi
+    const dep = {};
+    for (const p of piani) { const ae = G.aerei.find(a => a.id === p.aeId); for (const [i, n] of Object.entries(partenzeProg(ae, p.prog))) dep[i] = (dep[i] || 0) + n; }
+    const slot = Object.entries(dep).filter(([i, n]) => AP[i].slot && n > (G.slot[i] || 0)).map(([i, n]) => ({ i, n: n - (G.slot[i] || 0), costo: (n - (G.slot[i] || 0)) * AP[i].slotPrezzo }));
+    const coperte = new Set(piani.flatMap(p => p.rotte));
+    const sc = [...new Map(scoperte.filter(s => !coperte.has(s.k)).map(s => [s.k, s])).values()];
+    return { ok: true, piani, ferme, scoperte: sc, slot, costo: slot.reduce((x, s) => x + s.costo, 0), voliSett: piani.reduce((x, p) => x + p.voliSett, 0), rotteCoperte: coperte.size, rotteTotali: Object.keys(G.rotte).length };
+  }
+  // equipaggi che mancherebbero con il nuovo piano (prova su una copia della partita)
+  function stimaPersonalePiano(G, P) {
+    const C = JSON.parse(JSON.stringify(G, (k, v) => k.startsWith('_') ? undefined : v));
+    C.cassa = Math.max(C.cassa, P.costo) + 1; if (C.auto) C.auto.equipaggi = false;
+    const fuso = FUSO; applicaPianoFlotta(C, P); FUSO = fuso;
+    const p = pianoAssunzioni(C);
+    return { n: p.length, costo: p.reduce((x, e) => x + costoAssunzione(e, false), 0), costoUrgente: p.reduce((x, e) => x + costoAssunzione(e, true), 0) };
+  }
+  function applicaPianoFlotta(G, P, opz = {}) {
+    if (!P || !P.ok) return err('Piano non valido');
+    if (G.cassa < P.costo) return err(`Servono ${eur(P.costo)} per gli slot`);
+    for (const s of P.slot) { G.cassa -= s.costo; G.slot[s.i] = (G.slot[s.i] || 0) + s.n; }
+    const pianoDi = new Map(P.piani.map(p => [p.aeId, p]));
+    const autoPrima = G.auto && G.auto.equipaggi; if (G.auto) G.auto.equipaggi = false;
+    // prima si svuotano tutte le settimane (così gli slot non si sommano a quelli vecchi), poi si salvano le nuove
+    for (const ae of flottaAttiva(G)) { const p = pianoDi.get(ae.id); ae.prog = settimanaVuota(p ? p.base : ae.base, ae.prog.turn); delete ae._piano; }
+    G._roster = null; G.fissi = {};
+    const errori = [];
+    for (const ae of flottaAttiva(G)) {
+      const p = pianoDi.get(ae.id);
+      const v = salvaProgramma(G, ae.id, p ? p.prog : settimanaVuota(ae.base, ae.prog.turn));
+      if (v.E.length) { errori.push(`${ae.marche}: ${v.E[0]}`); salvaProgramma(G, ae.id, settimanaVuota(ae.base, ae.prog.turn)); }
+    }
+    if (G.auto) G.auto.equipaggi = autoPrima;
+    if (opz.urgente && pianoAssunzioni(G).length) A.assumiMancanti(G, true); else autoAssumi(G);
+    notizia(G, `Nuovo piano della flotta: ${P.piani.length - errori.length} aerei programmati, ${P.voliSett} voli a settimana su ${P.rotteCoperte} rotte.${P.costo ? ` Slot comprati: ${eur(P.costo)}.` : ''}`, 'buona');
+    return errori.length ? err(`Piano applicato, ma ${errori.length} aerei sono rimasti a terra: ${errori[0]}`) : ok(`Piano applicato: ${P.voliSett} voli a settimana`);
+  }
+
   /* ---------- Creazione e migrazione ---------- */
   function nuovaPartita(scenId, { nome, codice, base }) {
     const S = D.SCENARI[scenId];
@@ -2326,6 +2444,7 @@ const SIM = (() => {
     firmaCarta(G, id) { const F = G.fedelta, o = (F.offerteCarta || []).find(x => x.id === id); if (!o) return err('Offerta scaduta'); F.carta = { banca: o.banca, perTitolare: o.perTitolare, inizio: G.ora, fine: G.ora + o.anni * 365 * GIORNO }; F.offerteCarta = []; return ok(`Carta di credito con ${o.banca} firmata`); },
     scuolaPiloti(G) { return apriScuola(G); },
     trattativa(G, x) { return trattativa(G, x); },
+    applicaPianoFlotta(G, P, opz) { return applicaPianoFlotta(G, P, opz); },
     chiediOfferta(G, iata) { return chiediOfferta(G, iata); },
     accettaOfferta(G, id) { return accettaOfferta(G, id); },
     rifiutaOfferta(G, id) { return rifiutaOfferta(G, id); },
@@ -2379,6 +2498,6 @@ const SIM = (() => {
     }
   };
 
-  return { generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  return { pianificaFlotta, stimaPersonalePiano, generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;
