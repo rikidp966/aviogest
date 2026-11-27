@@ -26,6 +26,7 @@ document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset.az === 'autocheck') return AZ.autocheck(el);
   if (el.dataset.fed) { esito(SIM.A.fedelta(G, { [el.dataset.fed]: el.value })); render(); return; }
+  if (el.id === 'pianoUrgente') { UI.pianoUrgente = el.checked; disegnaPianificatore(); return; }
   if (el.id === 'edizione') { UI.edizione = +el.value; render(); return; }
   if (el.id === 'safQuota') { esito(SIM.A.saf(G, +el.value)); render(); return; }
   if (el.id === 'importaFile' && el.files[0]) { importaPartita(el.files[0]); return; }

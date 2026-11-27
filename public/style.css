@@ -694,3 +694,6 @@ a.link-rotta:hover { color: var(--accento); border-bottom-color: var(--accento);
 .form label.interruttore { display: grid; grid-template-columns: auto 1fr; flex-direction: row; text-transform: none; letter-spacing: 0; font: 400 14px/1.4 var(--f-testo); color: var(--testo); }
 .form label.interruttore small { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .grafico svg { overflow: hidden; }
+
+.piano-aerei li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.piano-aerei .piano-descr { grid-column: 1 / -1; font-size: 13px; }

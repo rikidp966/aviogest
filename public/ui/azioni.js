@@ -4,6 +4,8 @@
 /* ---------- Azioni ---------- */
 const AZ = {
   chiudi: () => chiudiModale(),
+  pianifica: () => apriPianificatore(),
+  'applica-piano': () => { const r = SIM.A.applicaPianoFlotta(G, UI.pianoFlotta, { urgente: !!UI.pianoUrgente }); if (esito(r) || r.errore) { chiudiModale(); bozza = null; UI.pianoFlotta = null; if (pagina !== 'programmazione') location.hash = '#/programmazione'; dopoAzione(); } },
   'firma-carta': el => { if (esito(SIM.A.firmaCarta(G, el.dataset.id))) render(); },
   scuola: () => conferma('Aprire la scuola piloti?', 'Costa 2,5 M€ subito e 4.000 € al giorno. Il primo corso finisce tra 4 mesi, poi 6 nuovi piloti ogni 2 mesi: assunzioni in 3 giorni e molto più economiche.', 'Apri la scuola', () => { if (esito(SIM.A.scuolaPiloti(G))) render(); }),
   'apri-trattativa': () => apriTrattativa(),
