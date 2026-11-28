@@ -33,7 +33,7 @@ VISTE.direzione = () => {
   <div class="griglia g2 mt">
     <div class="pannello"><h2>Il tuo team</h2><ul class="team">${Object.entries(R.dirigenti).map(([k, d]) => `<li><span class="avatar r-${k}" aria-hidden="true">${h(iniziali(d.nome))}</span><div><b>${h(d.nome)}</b><small>${D.DIRIGENTI[k].ruolo} · ${D.DIRIGENTI[k].motto}</small>${barretta(d.umore / 100, `umore ${Math.round(d.umore)}`, [2, 2])}</div></li>`).join('')}</ul>
       <p class="nota">Bocciare spesso le proposte di un dirigente lo demotiva: sotto 15 di umore si dimette.</p></div>
-    <div class="pannello"><h2>Consiglio di amministrazione</h2>
+    <div class="pannello"><div class="riga" style="margin:0 0 8px"><h2 style="margin:0">Consiglio di amministrazione</h2><a class="piccolo" href="#/proprieta">Soci e consiglieri →</a></div>
       <div class="piccolo">Fiducia nella tua gestione</div>${barretta(G.cda.fiducia / 100, Math.round(G.cda.fiducia) + '/100', [2, 2])}
       <p class="piccolo">Obiettivi del semestre · mancano <b>${giorniA(sem.fine)} giorni</b></p>
       ${cda.map(o => `<div class="piccolo">${h(o.t)} · ${h(o.s)}</div>${barretta(clamp01(o.v), o.v >= 1 ? '✓' : pct(clamp01(o.v)), [2, 2])}`).join('')}
@@ -156,5 +156,5 @@ function pannelloBorsa() {
     <div class="filtri mt"><button data-az="aumento">Aumento di capitale del 10% (~${mln(B.azioni * 0.1 * B.prezzo * 0.95)})</button>
       <input type="number" id="importoBorsa" min="0" step="100000" value="${Math.round(Math.max(1e5, cap * 0.01) / 1e5) * 1e5}" style="width:140px" aria-label="Importo">
       <button data-az="dividendo">Paga dividendo</button><button data-az="riacquisto">Riacquista azioni</button></div>
-    <p class="nota">L’aumento di capitale porta cassa ma diluisce la tua quota (non puoi scendere sotto il 51%). Dividendi e riacquisti fanno salire il titolo e la fiducia del CdA.</p></div>`;
+    <p class="nota">L’aumento di capitale porta cassa ma diluisce la tua quota: sotto il 50% le decisioni grosse passano dal CdA (pagina Soci e CdA). Dividendi e riacquisti fanno salire il titolo e la fiducia del CdA.</p></div>`;
 }

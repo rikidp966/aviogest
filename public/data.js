@@ -331,6 +331,11 @@ const DATI = (() => {
       obiettivi: 'Compra due concorrenti e porta il valore della compagnia a 600 M€ entro 3 anni.',
       cassa: 120e6, flotta: [['A320', 'leasing'], ['A320', 'leasing'], ['A320', 'leasing']], equipaggi: [['A320', 9, 2, 4]]
     },
+    carriera: {
+      nome: 'Carriera', difficolta: 'Libera', durata: 0, inizio: g(2027, 3, 1), nascosto: true,
+      descr: 'Dopo il licenziamento guidi una compagnia concorrente.', obiettivi: 'Nessun obiettivo: rilancia la compagnia e la tua carriera.',
+      cassa: 5e6, flotta: [], equipaggi: []
+    },
     sfida: {
       nome: 'Sfida della settimana', difficolta: 'Sfida', durata: 90, inizio: g(2027, 3, 1),
       descr: 'Stessa base, stesso mercato e stessi imprevisti per tutti: la partenza cambia ogni lunedì.',

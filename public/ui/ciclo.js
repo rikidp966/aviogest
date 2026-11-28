@@ -99,6 +99,11 @@ function mostraEsito() {
     modale({ titolo: '🏆 Scenario completato!', corpo: `<p>${h(G.nome)} ha raggiunto gli obiettivi di <b>${SCEN().nome}</b> in <b>${e.giorni}</b> giorni.</p><p style="font-size:28px;margin:8px 0"><b>${num(e.punteggio)}</b> punti</p><p class="muto">Il punteggio è stato registrato in classifica. Puoi continuare a far crescere la compagnia.</p>`, piede: `<button data-az="esci">Torna al menu</button><button class="primario" data-az="chiudi">Continua a giocare</button>` });
   } else if (e.tipo === 'scaduto') {
     modale({ titolo: 'Tempo scaduto', corpo: `<p>Gli obiettivi di <b>${SCEN().nome}</b> non sono stati raggiunti in tempo.</p><p class="muto">Puoi continuare a giocare liberamente, senza punteggio.</p>`, piede: `<button data-az="esci">Torna al menu</button><button class="primario" data-az="chiudi">Continua</button>` });
+  } else if (e.tipo === 'licenziato') {
+    e.visto = false; vel = 0; aggiornaVel(); modaleLicenziamento(); salva(); return;
+  } else if (e.tipo === 'liquidazione') {
+    suono('cattiva');
+    modale({ titolo: 'Liquidazione', corpo: `<p>L’amministrazione straordinaria non è riuscita a risanare ${h(G.nome)}: la compagnia viene messa in liquidazione.</p><p class="muto">Giorni di attività: ${Math.round((G.ora - G.inizio) / GIORNO)} · passeggeri trasportati: ${num(G.stat.pax)}</p>`, piede: '<button class="primario" data-az="esci">Torna al menu</button>' });
   } else {
     suono('cattiva');
     modale({ titolo: 'Fallimento', corpo: `<p>Dopo 10 giorni oltre il limite di fido, le banche hanno chiuso i conti di ${h(G.nome)}.</p><p class="muto">Giorni di attività: ${Math.round((G.ora - G.inizio) / GIORNO)} · passeggeri trasportati: ${num(G.stat.pax)}</p>`, piede: `<button class="primario" data-az="esci">Torna al menu</button>` });
@@ -123,7 +128,7 @@ async function menuIniziale() {
       ${salvati.map(s => `<tr class="clic" data-az="carica" data-id="${s.id}"><td><b>${h(s.nome)}</b></td><td>${h(D.SCENARI[s.scenario]?.nome || '')}</td><td>${fmtData(s.ora)}</td><td class="num">${eur(s.cassa)}</td><td>${new Date(s.salvato).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}</td><td><button class="piccolo" data-az="elimina-salvataggio" data-id="${s.id}">Elimina</button></td></tr>`).join('')}
     </tbody></table></div>` : ''}
     <h2>Nuova partita</h2>
-    <div class="scenari">${Object.entries(D.SCENARI).map(([k, s], i) => `<button class="scenario ${k === UI.scenarioSel ? 'on' : ''}" data-az="scegli-scenario" data-s="${k}" aria-pressed="${k === UI.scenarioSel}">
+    <div class="scenari">${Object.entries(D.SCENARI).filter(([, s]) => !s.nascosto).map(([k, s], i) => `<button class="scenario ${k === UI.scenarioSel ? 'on' : ''}" data-az="scegli-scenario" data-s="${k}" aria-pressed="${k === UI.scenarioSel}">
       <span class="pass-main"><span class="pass-testa">Carta d’imbarco <i>${h(s.difficolta)}</i></span>
         <b class="pass-nome">${h(s.nome)}</b><p>${h(s.descr)}</p>
         <span class="pass-lab">Obiettivo</span><p class="pass-ob">${h(s.obiettivi)}</p></span>
