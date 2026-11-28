@@ -14,6 +14,7 @@ function cartaRivale(R) {
   return `<div class="pannello carta rivale ${al ? 'alleato' : ''}">
     <div class="riga" style="margin:0"><span class="titolo"><span class="pallino" style="background:${R.colore}"></span>${h(R.nome)}</span>${al ? `<span class="badge b-ok">${SIM.LIVELLI_ALLEANZA[al.livello].nome}</span>` : R.crisi ? '<span class="badge b-err">In vendita a sconto</span>' : ''}</div>
     <div class="riga"><span>Hub</span><span>${R.hub} · ${h(citta(R.hub))}</span></div>
+    ${R.ceo ? `<div class="riga"><span>Amministratore delegato</span><span>${h(R.ceo.nome)} · ${h(SIM.STILI[R.ceo.stile]?.nome || '')}</span></div><p class="piccolo muto" style="margin:0">${R.ceo.ex ? 'È la tua vecchia compagnia: il nuovo AD vuole batterti. ' : ''}${h(SIM.STILI[R.ceo.stile]?.descr || '')}.</p>${barretta(R.ceo.rancore / 100, `rancore verso di te: ${Math.round(R.ceo.rancore)}`, [0.5, 0.7])}` : ''}
     <div class="riga"><span>Reputazione · prezzi</span><span>${Math.round(R.rep)}/100 · ${R.prezzo < 0.9 ? 'low cost' : R.prezzo > 1.1 ? 'premium' : 'nella media'}</span></div>
     <div class="riga"><span>Rete</span><span>${Object.keys(R.rotte).length} rotte · circa ${aerei} aerei</span></div>
     <div class="riga"><span>Salute finanziaria</span><span>${intel || R.crisi ? '' : '<span class="muto piccolo">serve l’analisi della concorrenza</span>'}</span></div>

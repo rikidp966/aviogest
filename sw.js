@@ -1,8 +1,8 @@
 // AvioGest — service worker: l'app si apre anche senza connessione.
 // File del gioco: prima la rete (così gli aggiornamenti arrivano subito), se manca la rete la copia salvata.
 // Librerie e caratteri da altri siti: la copia salvata, se c'è. I salvataggi sul server (/api) non passano mai dalla cache.
-const CACHE = 'aviogest-v4';
-const FILE = ["./","index.html","style.css","data.js","sim.js","icon.svg","manifest.webmanifest","ui/base.js","ui/mappa-grafici.js","ui/viste-operazioni.js","ui/viste-commerciale.js","ui/viste-azienda.js","ui/gestione.js","ui/facile.js","ui/persone.js","ui/espansione.js","ui/concorrenza.js","ui/pianificatore.js","ui/navigazione.js","ui/ciclo.js","ui/azioni.js","ui/eventi.js","ui/realismo.js","ui/avanzato.js","ui/proprieta.js"];
+const CACHE = 'aviogest-v5';
+const FILE = ["./","index.html","style.css","data.js","sim.js","icon.svg","manifest.webmanifest","ui/base.js","ui/mappa-grafici.js","ui/viste-operazioni.js","ui/viste-commerciale.js","ui/viste-azienda.js","ui/gestione.js","ui/facile.js","ui/persone.js","ui/espansione.js","ui/concorrenza.js","ui/pianificatore.js","ui/navigazione.js","ui/ciclo.js","ui/azioni.js","ui/eventi.js","ui/realismo.js","ui/avanzato.js","ui/proprieta.js","ui/gruppo.js"];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILE)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(l => Promise.all(l.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
