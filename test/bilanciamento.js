@@ -14,7 +14,7 @@ const consiglia = G => { for (const c of SIM.consigli(G)) for (const a of c.azio
 const giorni = (G, n, passo = 3, f) => { for (let i = 0; i < n / passo; i++) { SIM.avanza(G, passo * SIM.GIORNO); if (f) f(G); } };
 
 // 1. Primo decollo: rotazione guidata sulla destinazione consigliata, poi i consigli sui prezzi
-let G = SIM.nuovaPartita('primo', { nome: 'Test', codice: 'TT', base: 'BRI' }); SIM.impostaRnd(SIM.generatoreSeme(99));
+let G = SIM.nuovaPartita('primo', { nome: 'Test', codice: 'TT', base: 'BRI', seme: 99 });
 let pr = SIM.proposteDestinazioni(G, 8).filter(x => !x.diritti).slice(0, 1); // senza attesa dei diritti di traffico
 SIM.A.applicaRotazione(G, G.aerei[0].id, SIM.rotazioneGuidata(G, G.aerei[0].id, { tipo: 'navetta', dest: [pr[0].a] }));
 giorni(G, 90, 3, consiglia);
@@ -22,7 +22,7 @@ controlla('Primo decollo: utile al giorno (90 gg)', media(G, 30, 'utile'), 5000,
 controlla('Primo decollo: riempimento', riempimento(G, 30), 0.55, 0.98, v => Math.round(v * 100) + '%');
 
 // 2. Compagnia in crisi senza fare nulla: deve fallire
-G = SIM.nuovaPartita('crisi', { nome: 'Test', codice: 'TT' });
+G = SIM.nuovaPartita('crisi', { nome: 'Test', codice: 'TT', seme: 55 });
 giorni(G, 70, 7);
 controlla('Crisi senza interventi: fallisce (1 = sì)', G.esito && G.esito.tipo === 'fallimento' ? 1 : 0, 1, 1);
 
@@ -47,7 +47,7 @@ controlla('Libera: margine reale / stima della proposta', reale / pr[0].utile, 0
 
 // 5. Prezzo migliore: con +30% deve rendere più che al prezzo di riferimento e meno che al doppio
 // stessi numeri casuali per ogni prezzo: così cambia solo il prezzo, non gli imprevisti
-const prova = (f, seme = 12345) => { const g = SIM.nuovaPartita('libera', { nome: 'T', codice: 'TT', base: 'LIN' }); g.id = 'fisso'; g.imprevisti = 'pochi'; SIM.impostaRnd(SIM.generatoreSeme(seme));
+const prova = (f, seme = 12345) => { const g = SIM.nuovaPartita('libera', { nome: 'T', codice: 'TT', base: 'LIN', seme }); g.imprevisti = 'pochi';
   ['ATH', 'MAD'].forEach((d, i) => SIM.A.applicaRotazione(g, g.aerei[i].id, SIM.rotazioneGuidata(g, g.aerei[i].id, { tipo: 'navetta', dest: [d], giri: 2 })));
   for (const x in g.rotte) { const r = g.rotte[x]; SIM.A.prezzi(g, x, { pY: r.pY * f, pW: r.pW * f, pJ: r.pJ * f }); }
   SIM.avanza(g, 50 * SIM.GIORNO); return [media(g, 15, 'utile'), riempimento(g, 15)]; };

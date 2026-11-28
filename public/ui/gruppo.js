@@ -84,7 +84,7 @@ VISTE.istituzioni = () => {
 /* ---------- Scheda rotta: quale compagnia la vola ---------- */
 const _vistaRotta = VISTE.rotta;
 VISTE.rotta = (...a) => {
-  const html = _vistaRotta(...a), k = decodeURIComponent((location.hash.split('/')[2] || '')), r = G.rotte[k];
+  const html = _vistaRotta(...a), k = UI.arg || '', r = G.rotte[k];
   if (!r || !(G.marchi || []).length) return html;
   return html + `<div class="pannello mt"><h2>Compagnia del gruppo</h2><div class="filtri"><select data-marchio="${k}" aria-label="Compagnia che vola la rotta">${opzioni([['', G.nome], ...G.marchi.map(m => [m.id, `${m.nome} (${SIM.TIPI_MARCHIO[m.tipo].nome.toLowerCase()})`])], r.marchio || '')}</select></div><p class="nota">Cambiare compagnia costa 25.000 € di rebranding: cambiano clientela, costi e reputazione sulla rotta.</p></div>`;
 };
