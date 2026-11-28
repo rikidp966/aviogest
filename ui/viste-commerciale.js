@@ -13,7 +13,7 @@ VISTE.rotte = () => {
       <td>${f ? barretta(r.quota || 0, null, [2, 2]) : '<span class="muto piccolo">nessun volo</span>'}${(() => { const sp = Math.max(SIM.spinta(G, a, b).tot, SIM.spinta(G, b, a).tot); return sp > 0.01 ? `<span class="badge b-info" title="Effetto della pubblicità sull’attrattività">📣 +${Math.round(sp * 100)}%</span>` : ''; })()}</td>
       <td>${riv.length ? [...new Map(riv.map(x => [x.riv.id, x])).values()].map(x => `<span class="pallino" style="background:${x.riv.colore}" title="${h(x.riv.nome)}"></span>${h(x.riv.nome)}${x.guerra ? ' <span class="badge b-err">sconti</span>' : ''}`).join('<br>') : '<span class="muto">nessuno</span>'}</td>
       <td>${s.posti ? barretta(s.pax / s.posti, null, [0.95, 1.01]) : '<span class="muto">—</span>'}</td><td class="num">${s.voli ? eur(s.ricavi) : '—'}</td><td class="num">${s.voli ? segno(s.ricavi - s.costi) : '—'}</td>
-      <td><button class="piccolo" data-az="analisi" data-k="${k}">Analisi prezzi</button> <button class="piccolo pericolo" data-az="chiudi-rotta" data-k="${k}">Chiudi</button></td></tr>`; }).join('')}
+      <td><a class="btn piccolo primario" href="#/tariffe/${k}">Prezzi e tariffe</a> <button class="piccolo pericolo" data-az="chiudi-rotta" data-k="${k}">Chiudi</button></td></tr>`; }).join('')}
   </tbody></table>` : '<p class="vuoto">Nessuna rotta aperta. Apri la prima dalla tua base!</p>'}</div>
   <p class="nota">Ogni classe ha la sua tariffa (passa sopra la casella per il riferimento). Prezzi alti riducono domanda e quota; se una classe è piena o manca sull’aereo, parte dei clienti scende di classe. Una rotta nuova raggiunge la piena domanda in circa 2 mesi. Dettaglio per classe nella pagina Ricavi.</p></div>`;
 };

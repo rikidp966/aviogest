@@ -158,7 +158,7 @@ function cartaAereo(ae) {
       ${SIM.mediaCiclo(ae).ore ? '' : `<button class="piccolo primario" data-az="guida" data-id="${ae.id}">✨ Rotazione guidata</button>`}<button class="piccolo ${SIM.mediaCiclo(ae).ore ? 'primario' : ''}" data-az="vai-prog" data-id="${ae.id}">Rotazione</button>
       <button class="piccolo" data-az="riconfigura" data-id="${ae.id}" ${ae.lavori ? 'disabled' : ''}>Cabina</button>
       ${ae.stato === 'consegna' ? `<button class="piccolo pericolo" data-az="annulla-ordine" data-id="${ae.id}">Annulla ordine</button>` : `<button class="piccolo" data-az="check" data-id="${ae.id}" ${ae.lavori ? 'disabled' : ''}>Ispezione stanotte</button>`}
-      <button class="piccolo pericolo" data-az="vendi" data-id="${ae.id}">${ae.modo === 'leasing' ? 'Restituisci' : 'Vendi'}</button>
+      <a class="btn piccolo" href="#/aereo/${ae.id}">${ae.modo === 'leasing' ? 'Cedi o restituisci' : 'Vendi'}</a>
     </div></div>`;
 }
 function barraCabina(mod, cab) {
