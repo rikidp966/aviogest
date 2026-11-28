@@ -33,13 +33,13 @@ const crisiGestita = seme => { const g = SIM.nuovaPartita('crisi', { nome: 'Test
   for (const k in g.rotte) { const r = g.rotte[k]; SIM.A.prezzi(g, k, { pY: r.pY * 1.25, pW: r.pW * 1.25, pJ: r.pJ * 1.25 }); }
   g.stipendio = 1.05; for (const a of g.aerei) a.autoCheck = true; SIM.A.assumiMancanti(g, true);
   giorni(g, 120, 1, decidi); return g; };
-const cs = [2027, 4242, 11].map(crisiGestita), [c1, c2] = cs;
-controlla('Crisi gestita: utile al giorno (120 gg, media di 3)', cs.reduce((x, g) => x + media(g, 30, 'utile'), 0) / 3, -10000, 150000, eur);
-controlla('Crisi gestita: partite che non falliscono su 3', cs.filter(g => !(g.esito && g.esito.tipo === 'fallimento')).length, 2, 3);
+const cs = [2027, 4242, 11, 77, 303].map(crisiGestita), [c1, c2] = cs;
+controlla('Crisi gestita: utile al giorno (120 gg, media di 5)', cs.reduce((x, g) => x + media(g, 30, 'utile'), 0) / 5, -10000, 150000, eur);
+controlla('Crisi gestita: partite che non falliscono su 5', cs.filter(g => !(g.esito && g.esito.tipo === 'fallimento')).length, 3, 5);
 
 // 4. Partita libera: stima delle proposte contro il risultato reale
-G = SIM.nuovaPartita('libera', { nome: 'Test', codice: 'TT', base: 'LIN' });
-pr = SIM.proposteDestinazioni(G, 1);
+G = SIM.nuovaPartita('libera', { nome: 'Test', codice: 'TT', base: 'LIN', seme: 101 });
+pr = SIM.proposteDestinazioni(G, 8).filter(x => !x.diritti).slice(0, 1); // senza attesa dei diritti di traffico
 SIM.A.applicaRotazione(G, G.aerei[0].id, SIM.rotazioneGuidata(G, G.aerei[0].id, { tipo: 'navetta', dest: [pr[0].a], giri: pr[0].giri }));
 SIM.avanza(G, 70 * SIM.GIORNO);
 const k = SIM.chiave(pr[0].da, pr[0].a), S = SIM.statRecenti(G, 14).rotte[k], reale = S ? (S.ricavi - S.costi) / S.giorni : 0;

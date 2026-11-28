@@ -404,13 +404,14 @@ const SIM = (() => {
   const maturitaRotta = (G, da, a, giorno) => { const r = G.rotte[chiave(da, a)]; return r ? clamp(0.6 + (giorno - r.aperta) / (150 * GIORNO), 0.6, 1) : 1; };
   // Quanti passeggeri sceglie il giocatore in una direzione in un giorno (penalita < 1 per i viaggi in coincidenza)
   function analisiMercato(G, da, a, giorno, freq, pY, penalita = 1, opz = {}) {
-    const k = km(da, a), ref = prezzoRif(k), Sg = G.strategia ? STR(G) : null, M = G.mod || {};
+    const k = km(da, a), ref = prezzoRif(k), Sg = G.strategia ? strategiaRotta(G, da, a) : null, M = G.mod || {};
     let mercato = domandaBase(G, da, a, giorno);
     // senza studio di mercato le stime mostrate al giocatore usano la domanda "generica" della coppia di città
     if (opz.stima && !studiato(G, da, a)) mercato /= fattoreRotta(G, da, a);
     if (Sg) mercato *= Sg.domanda * (Sg.corto && k < 900 ? Sg.corto : Sg.lungo && k > 2500 ? Sg.lungo : 1);
     if (M.sito) mercato *= 1.03;
     { const rr = G.rotte[chiave(da, a)]; if (rr && rr.passaparola > G.ora) mercato *= 1.03; }
+    mercato *= 1 + 0.015 * abil(G, 'comm');
     if (G.globale) mercato *= 1.04 + (AP[da].continente !== AP[a].continente ? 0.04 : 0);
     if (G.alleanze) for (const [rid, al] of Object.entries(G.alleanze)) if (al.livello === 'codeshare') {
       const P = G.rivali.find(x => x.id === rid), cA = AP[da].citta, cB = AP[a].citta;
@@ -419,7 +420,7 @@ const SIM = (() => {
     const val = G.bordo ? valoreProdotto(G, k) : null, pYe = val ? pY / val.Y : pY;
     const sp = opz.senzaMarketing ? { tot: 0, bus: 0 } : spinta(G, da, a, opz.escludi, opz.extra);
     const riv = rivaliSu(G, da, a), altri = altriMezzi(da, a, k) * (G.treni && G.treni.includes(chiaveCitta(da, a)) ? 2.5 : 1);
-    const attrP = freq > 0 ? repF(G.reputazione) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) * fattoreMarchio(G, da, a) : 0;
+    const attrP = freq > 0 ? repF(repRotta(G, da, a)) * (ref / pYe) ** 1.6 * Math.sqrt(freq) * penalita * (1 + sp.tot) * fattoreMarchio(G, da, a) * notoMarchio(G, da, a) : 0;
     let tot = attrP + altri;
     const rivali = riv.map(x => { const at = repF(x.riv.rep) * (1 / x.prezzo) ** 1.6 * Math.sqrt(x.freq) * (x.riv.alleato ? 1.05 : 1) * (x.riv.globale ? 1.03 : 1); tot += at; return { ...x, at }; });
     rivali.forEach(x => x.quota = x.at / tot);
@@ -612,7 +613,7 @@ const SIM = (() => {
         const prop = ae.arrPrevista ? Math.max(0, (ae.arrPrevista + 25 * MIN - v.dep) / MIN) : 0;
         const fatica = Math.max(0, ((roster(G).carico.get(eq.id)?.min || 0) / 60 / MAX_ORE) - 0.8), proprio = (G.handlingProprio || []).includes(v.da), dev = eventoAttivo(G, 'deviazione', v.dep, [v.da, v.a]);
         const hDep = oraLocaleMin((v.dep - mezzanotte(v.dep)) / MIN, v.da) / 60, punta = AP[v.da].slot && ((hDep >= 7 && hDep < 9) || (hDep >= 17 && hDep < 20)) ? 0.06 : 0;
-        const p = (0.16 + punta + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0)) * ((G.mod || {}).puntualita ? 0.75 : 1) * (1 + 2 * fatica) * (proprio ? 0.85 : 1);
+        const p = (0.16 + punta + (ae.prog.turn < 35 ? 0.12 : 0) + usura * 0.08 + (meteo ? 0.45 : 0)) * ((G.mod || {}).puntualita ? 0.75 : 1) * (1 + 2 * fatica) * (proprio ? 0.85 : 1) * (1 - 0.07 * abil(G, 'coo'));
         const own = rnd() < p ? -Math.log(rnd()) * (meteo ? 45 : 20) : 0;
         v.rit = Math.round(Math.max(prop, own, attesaRip) + (dev ? 40 : 0) + (meteo && meteo.neve ? 15 : 0));
         if (meteo && meteo.neve) v.ghiaccio = true; if (dev) v.deviato = true;
@@ -664,6 +665,9 @@ const SIM = (() => {
       equipaggi: Math.round((v.fineTurno ? (v.piloti + cabMin(ae)) * 150 * (BENESSERE[G.benessere || 'nessuno'].alloggi ? 0.7 : 1) : 0) + (v.posizionato ? (v.piloti + cabMin(ae)) * 250 : 0)),
       soste: v.sostaFuori ? Math.round(m.peso * 15) : 0
     };
+    { const Mb = marchioDi(G, chiave(v.da, v.a)); if (Mb) { const T = TIPI_MARCHIO[Mb.tipo]; c.handling = Math.round(c.handling * T.handling); c.servizio = Math.round(c.servizio * T.servizio); c.distribuzione = Math.round(c.distribuzione * T.distribuzione); bordo.extra = Math.round(bordo.extra * T.extra); } }
+    c.manutenzione = Math.round(c.manutenzione * fattoreSocieta(G, 'manutenzione')); c.handling = Math.round(c.handling * fattoreSocieta(G, 'handling')); c.servizio = Math.round(c.servizio * fattoreSocieta(G, 'servizio'));
+    c.tasse += Math.round(pax * ((G.tassePax || {})[AP[v.da].paese] || 0));
     let costi = Object.values(c).reduce((s, x) => s + x, 0); const ricaviC = {}; let ricavi = 0;
     for (const x of CL) { ricaviC[x] = Math.round(v.inc[x]); ricavi += ricaviC[x]; }
     ricavi += bordo.extra; G.oggi.ricaviExtra = (G.oggi.ricaviExtra || 0) + bordo.extra;
@@ -791,6 +795,7 @@ const SIM = (() => {
     }
     c.personale = G.equipaggi.reduce((x, e) => x + pagaEquipaggio(e), 0) * G.stipendio * (G.lavoro ? G.lavoro.contratto : 1) + (G.lavoro && G.lavoro.scuola ? 4000 : 0);
     if (G.cassaIntegrazione) c.personale *= 0.75;
+    c.personale *= 1 - quotaPersonaleMarchi(G);
     c.personale += totPersonale(G) * BENESSERE[G.benessere || 'nessuno'].costo;
     if (G.manutenzioneInterna) c.manutenzione = 3000 + 700 * flottaAttiva(G).length;
     for (const b of G.handlingProprio || []) c.basi += 2500 * fattoreLavoro(b);
@@ -809,7 +814,7 @@ const SIM = (() => {
     const o = G.oggi, fissi = costiFissi(G);
     for (const x in fissi) { o.costi[x] = (o.costi[x] || 0) + fissi[x]; G.cassa -= fissi[x]; }
     for (const x of G.campagne || []) if (x.attiva) x.speso += x.budget;
-    for (const x of G.campagne || []) if (D.MARKETING[x.canale].reputazione) G.reputazione = Math.min(100, G.reputazione + 0.12 * x.forza);
+    for (const x of G.campagne || []) if (D.MARKETING[x.canale].reputazione) G.reputazione = Math.min(100, G.reputazione + 0.12 * x.forza * (1 + 0.12 * abil(G, 'cmo')));
     if (!G.straordinaria) for (const d of G.debiti) { const r = Math.min(d.capitale, d.rata || 0); d.capitale -= r; G.cassa -= r; if (r) flusso(G, 'finanziamenti', -r); }
     G.debiti = G.debiti.filter(d => d.capitale > 1);
     const costi = Object.values(o.costi).reduce((s, x) => s + x, 0);
@@ -832,7 +837,7 @@ const SIM = (() => {
     G.carburante = clamp(G.carburante + (0.8 - G.carburante) * 0.03 + (rnd() - 0.5) * 0.025, 0.45, 1.6);
     eventiCasuali(G);
     if (loc(G.ora).getUTCDay() === 1) { settimanaRivali(G); aggiornaMercato(G); }
-    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G); giornoEspansione(G); giornoLavoro(G); giornoRealismo(G); giornoFinanza(G); giornoCommerciale(G); giornoFlotta(G); giornoOperazioni(G); giornoProprieta(G); giornoPasseggeri(G);
+    autoAssumi(G); controllaMissioni(G); giornoGestione(G); controllaDilemma(G); giornoEspansione(G); giornoLavoro(G); giornoRealismo(G); giornoFinanza(G); giornoCommerciale(G); giornoFlotta(G); giornoOperazioni(G); giornoProprieta(G); giornoPasseggeri(G); giornoGruppoIstituzioni(G);
     controllaTraguardi(G); controllaObiettivi(G);
     if (G.cassa < -2e6) {
       G.fallimento++;
@@ -888,12 +893,12 @@ const SIM = (() => {
       if (!pst) continue;
       const lf = pax / pst, [a, b] = k.split('-'), riv = rivaliSu(G, a, b), q = r.quota || 0;
       if (!riv.length && q > 0.4 && lf > 0.8 && G.ora - r.aperta > 30 * GIORNO && G.ora - G.inizio > 45 * GIORNO && rnd() < 0.2) {
-        if (!G.mosseRivali.some(m => m.k === k && !m.fatta)) if (G.rivali.some(X => !alleato(G, X.id))) G.mosseRivali.push({ riv: pick(G.rivali.filter(X => !alleato(G, X.id))).id, k, freq: 2 + Math.floor(rnd() * 2), t: G.ora + (14 + Math.floor(rnd() * 14)) * GIORNO, attacco: true });
+        if (!G.mosseRivali.some(m => m.k === k && !m.fatta)) if (G.rivali.some(X => !alleato(G, X.id))) G.mosseRivali.push({ riv: scegliAttaccante(G).id, k, freq: 2 + Math.floor(rnd() * 2), t: G.ora + (14 + Math.floor(rnd() * 14)) * GIORNO, attacco: true });
       } else for (const x of riv) {
         if (alleato(G, x.riv.id)) continue;
         const am = analisiMercato(G, a, b, mezzanotte(G.ora), 1, r.pY), qr = am.rivali.find(y => y.riv.id === x.riv.id)?.quota || 0;
         if (qr < 0.12 && q > 0.3 && rnd() < 0.35) { delete x.riv.rotte[x.k]; notizia(G, `${x.riv.nome} abbandona ${x.k.replace('-', '–')}: la rotta è tua.`, 'buona', true); }
-        else if (q > 0.45 && !x.guerra && rnd() < 0.12) { const rr = x.riv.rotte[x.k]; rr.prezzo *= 0.8; rr.guerraFino = G.ora + 21 * GIORNO; notizia(G, `Guerra dei prezzi: ${x.riv.nome} taglia del 20% le tariffe su ${x.k.replace('-', '–')} per tre settimane.`, 'cattiva', true); }
+        else if (q > 0.45 && !x.guerra && rnd() < 0.12 * fStile(x.riv)) { const rr = x.riv.rotte[x.k]; rr.prezzo *= 0.8; rr.guerraFino = G.ora + 21 * GIORNO; notizia(G, `Guerra dei prezzi: ${x.riv.nome} taglia del 20% le tariffe su ${x.k.replace('-', '–')} per tre settimane.`, 'cattiva', true); }
       }
     }
     for (const R of G.rivali) for (const rr of Object.values(R.rotte)) if (rr.guerraFino && G.ora > rr.guerraFino) { rr.prezzo = R.prezzo; delete rr.guerraFino; }
@@ -1206,6 +1211,7 @@ const SIM = (() => {
     G.borsa ||= { quotata: false };
     initRivali(G); initFedelta(G); initLavoro(G); initRealismo(G); initProprieta(G);
     G.esperto ??= false; G.irops ||= { riserva: true, riprotezione: true };
+    G.marchi ||= []; G.societa ||= {}; G.cause ||= []; G.bandi ||= []; G.pso ||= []; G.lobby ||= 0; completaDirigenti(G); initCeo(G);
     for (const ae of G.aerei) completaAereo(G, ae, false);
     if (!G.diritti) { G.diritti = {}; for (const k of Object.keys(G.rotte)) { const [a, b] = k.split('-'); if (servonoDiritti(a, b)) G.diritti[chiaveDiritti(a, b)] = { stato: 'concessi' }; } }
     G.canali ||= { ota: true, aziende: false }; G.promozioni ||= []; G.stelle ??= 3.2;
@@ -1373,7 +1379,7 @@ const SIM = (() => {
     const costo = P.costo + (P.perAereo || 0) * flottaAttiva(G).length;
     if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
     paga(G, costo, 'altro');
-    G.direzione.progetti.push({ id: 'pr' + (G.seq++), tipo, nome: P.nome, inizio: G.ora, fine: G.ora + P.giorni * GIORNO, costo, fatto: false });
+    G.direzione.progetti.push({ id: 'pr' + (G.seq++), tipo, nome: P.nome, inizio: G.ora, fine: G.ora + Math.round(P.giorni * (1 - 0.08 * abil(G, 'cto'))) * GIORNO, costo, fatto: false });
     if (tipo === 'tagli') G.morale = Math.max(0, G.morale - 8);
     return ok(`${P.nome}: avviato, pronto tra ${P.giorni} giorni`);
   }
@@ -1469,7 +1475,7 @@ const SIM = (() => {
   }
   function dimissioni(G, ruolo) {
     const d = G.direzione.dirigenti[ruolo], nomi = D.DIRIGENTI[ruolo].nomi, vecchio = d.nome;
-    d.nome = nomi[(nomi.indexOf(vecchio) + 1) % nomi.length]; d.umore = 60; d.n = 0;
+    d.nome = nomi[(nomi.indexOf(vecchio) + 1) % nomi.length]; d.umore = 60; d.n = 0; d.abilita = 2 + Math.floor(rnd() * 2); d.stipendio = BASE_DIR; d.dal = G.ora;
     G.reputazione = Math.max(0, G.reputazione - 1);
     notizia(G, `${vecchio} (${D.DIRIGENTI[ruolo].ruolo}) si dimette: troppe proposte bocciate. Al suo posto arriva ${d.nome}.`, 'cattiva', true);
   }
@@ -1630,7 +1636,7 @@ const SIM = (() => {
       f = f * 0.65 + obiettivo * 0.35 + ((G.economia?.[AP[R.hub].continente] || 1) - 1) * 20 + (rnd() - 0.5) * 3;
       if (!alleato(G, R.id)) for (const [k, x] of Object.entries(R.rotte)) {
         const mio = G.rotte[k], [a0, b0] = k.split('-');
-        if (mio && mieFreqDir(G, a0, b0) > 0 && mio.pY < prezzoRif(km(a0, b0)) * x.prezzo * 0.88 && (x.margine ?? 0) > -0.3 && !x.guerraFino && rnd() < 0.3) { x.prezzo = Math.max(0.55, x.prezzo * 0.92); notizia(G, `${R.nome} abbassa le tariffe su ${k.replace('-', '–')} per rispondere ai tuoi prezzi.`, 'cattiva'); }
+        if (mio && mieFreqDir(G, a0, b0) > 0 && mio.pY < prezzoRif(km(a0, b0)) * x.prezzo * 0.88 && (x.margine ?? 0) > -0.3 && !x.guerraFino && rnd() < 0.3) { x.prezzo = Math.max(0.55, x.prezzo * 0.92); rancore(G, R, 4); notizia(G, `${R.nome} abbassa le tariffe su ${k.replace('-', '–')} per rispondere ai tuoi prezzi.`, 'cattiva'); }
         if ((x.lf ?? 0) > 0.88 && R.cassa > 0 && x.freq < 8 && rnd() < 0.4) x.freq++;
         else if ((x.margine ?? 0) < -0.15 && rnd() < 0.4) { x.freq--; if (x.freq <= 0) { delete R.rotte[k]; notizia(G, `${R.nome} chiude la rotta ${k.replace('-', '–')}: non le rendeva.`, 'buona'); } }
       }
@@ -1681,7 +1687,7 @@ const SIM = (() => {
   // ---------- Alleanze con te ----------
   function disponibilita(G, R, livello) {
     const guerre = Object.values(R.rotte).filter(x => x.guerraFino).length;
-    let s = 56 + (G.reputazione - R.rep) * 0.5 + (R.forza < 35 ? 20 : 0) - guerre * 15 + (G.cda?.fiducia ?? 60) * 0.1 - 6;
+    let s = 56 + (G.reputazione - R.rep) * 0.5 + (R.forza < 35 ? 20 : 0) - guerre * 15 + (G.cda?.fiducia ?? 60) * 0.1 - 6 - (R.ceo?.rancore || 0) * 0.3;
     if (livello === 'codeshare' && !alleato(G, R.id)) s -= 10;
     return Math.round(s);
   }
@@ -2584,13 +2590,13 @@ const SIM = (() => {
     if (x && x.stato === 'concessi') return ok('Diritti già concessi');
     if (x && x.stato === 'attesa') return ok(`Diritti in arrivo il ${dataDi(x.pronto)}`);
     if (x && x.stato === 'negati' && G.ora < x.riprova) return err(`Diritti negati: puoi riprovare dal ${dataDi(x.riprova)}`);
-    paga(G, 50000, 'altro'); G.diritti[k] = { stato: 'attesa', pronto: G.ora + (30 + Math.floor(rnd() * 45)) * GIORNO };
+    paga(G, 50000, 'altro'); G.diritti[k] = { stato: 'attesa', pronto: G.ora + Math.round((30 + Math.floor(rnd() * 45)) * (1 - 0.15 * liv(G))) * GIORNO };
     notizia(G, `Chiesti i diritti di traffico ${k.replace('-', '–')}: risposta entro il ${dataDi(G.diritti[k].pronto)}. Fino ad allora i voli su quelle rotte non si vendono.`, 'info');
     return ok('Richiesta dei diritti di traffico inviata');
   }
   function giornoOperazioni(G) {
     for (const [k, x] of Object.entries(G.diritti || {})) if (x.stato === 'attesa' && G.ora >= x.pronto) {
-      if (rnd() < 0.88) { x.stato = 'concessi'; notizia(G, `Concessi i diritti di traffico ${k.replace('-', '–')}: i voli su quelle rotte vanno in vendita.`, 'buona', true); for (const ae of flottaAttiva(G)) rigeneraAereo(G, ae); }
+      if (rnd() < 0.88 + 0.03 * liv(G)) { x.stato = 'concessi'; notizia(G, `Concessi i diritti di traffico ${k.replace('-', '–')}: i voli su quelle rotte vanno in vendita.`, 'buona', true); for (const ae of flottaAttiva(G)) rigeneraAereo(G, ae); }
       else { x.stato = 'negati'; x.riprova = G.ora + 120 * GIORNO; notizia(G, `Negati i diritti di traffico ${k.replace('-', '–')}: potrai riprovare tra 4 mesi.`, 'cattiva', true); }
     }
   }
@@ -2942,6 +2948,9 @@ const SIM = (() => {
     N.ad = { ...JSON.parse(JSON.stringify(Gv.ad)), opzioni: [], stipendio: 600000, compenso: 1 };
     N.ad.carriera.push({ nome: Gv.nome, dal: Gv.inizio, al: Gv.ora, motivo: Gv.licenziamento?.motivo || 'licenziato' });
     N.ad.rep = Math.max(25, N.ad.rep);
+    { const ex = { id: 'ex' + (N.seq++), nome: Gv.nome, colore: (Gv.marchio && Gv.marchio.colore) || '#6b7280', hub: Gv.basi[0], rep: Math.round(Gv.reputazione), prezzo: 1, rotte: {}, forza: 45, globale: null, ceo: { nome: NOMI_AD[Math.floor(rnd() * NOMI_AD.length)], stile: 'aggressivo', rancore: 55, ex: true } };
+      for (const k of Object.keys(Gv.rotte).slice(0, 12)) ex.rotte[k] = { freq: 2, prezzo: 1 };
+      if (AP[ex.hub] && Object.keys(ex.rotte).length) N.rivali.push(ex); }
     notizia(N, `Benvenuto in ${R.nome}! Il consiglio ti ha scelto come nuovo amministratore delegato dopo l’esperienza in ${Gv.nome}.`, 'buona', true);
     return N;
   }
@@ -3082,7 +3091,7 @@ const SIM = (() => {
       if ((R.miaQuota || 0) + q > 0.3001) return err('Oltre il 30% la legge ti obbliga a lanciare un’OPA');
       const costo = valoreQuotaRiv(G, R, q); if (G.cassa < costo) return err(`Servono ${eur(costo)}`);
       const v = serveVoto(G, 'quota', costo, `acquisto del ${pct1(q)} di ${R.nome}`); if (v) return v;
-      G.cassa -= costo; flusso(G, 'investimenti', -costo); const prima = R.miaQuota || 0; R.miaQuota = prima + q; R.costoQuota = (R.costoQuota || 0) + costo;
+      G.cassa -= costo; flusso(G, 'investimenti', -costo); const prima = R.miaQuota || 0; R.miaQuota = prima + q; R.costoQuota = (R.costoQuota || 0) + costo; rancore(G, R, 12, 'stai comprando le sue azioni');
       if (prima < 0.05 && R.miaQuota >= 0.05) notizia(G, `Hai superato il 5% di ${R.nome}: ora lo sanno tutti.`, 'info');
       return ok(`Ora hai il ${pct1(R.miaQuota)} di ${R.nome}`);
     },
@@ -3098,7 +3107,7 @@ const SIM = (() => {
       const v = serveVoto(G, 'opa', costo, `OPA su ${R.nome} (${eur(costo)})`); if (v) return v;
       const p = probOpa(G, R, premio);
       if (rnd() < p) { G._senzaVoto = true; R._prezzoForzato = costo; const r = acquisisci(G, rid); G._senzaVoto = false; delete R._prezzoForzato; G.ad.rep = Math.min(100, G.ad.rep + 5); return r.errore ? r : ok(`OPA riuscita: ${R.nome} è tua`); }
-      const spese = Math.round(costo * 0.02); paga(G, spese, 'altro'); G.cda.fiducia = Math.max(0, G.cda.fiducia - 4); G.ad.rep = Math.max(0, G.ad.rep - 3);
+      const spese = Math.round(costo * 0.02); paga(G, spese, 'altro'); rancore(G, R, 30, 'hai tentato di scalarla'); G.cda.fiducia = Math.max(0, G.cda.fiducia - 4); G.ad.rep = Math.max(0, G.ad.rep - 3);
       notizia(G, `OPA su ${R.nome} fallita: i soci non hanno aderito. Spese di consulenza ${eur(spese)}.`, 'cattiva', true);
       return err(`OPA fallita (spese ${eur(spese)})`);
     },
@@ -3140,6 +3149,330 @@ const SIM = (() => {
   ];
 
   DILEMMI.push(...DILEMMI_AD);
+
+  /* ---------- Gruppo: compagnie controllate e società di servizi ---------- */
+  const TIPI_MARCHIO = {
+    lowcost: { nome: 'Low cost', strategia: 'lowcost', costo: 2e6, handling: 0.8, servizio: 0.5, distribuzione: 0.5, extra: 1.3, personale: 0.12, descr: 'Prezzi bassi e servizi a pagamento: costi di terra e di bordo molto più bassi, clienti attenti al prezzo.' },
+    regionale: { nome: 'Regionale', strategia: 'regionale', costo: 1.5e6, handling: 0.9, servizio: 0.8, distribuzione: 0.8, extra: 1.05, personale: 0.08, descr: 'Tratte brevi e aeroporti minori: più passeggeri sotto i 900 km, costi un po’ più bassi.' }
+  };
+  const COLORI_MARCHIO = ['#ff7a00', '#14a37f', '#7048e8', '#e8590c', '#1c7ed6'];
+  const marchioDi = (G, k) => { const id = G.rotte[k]?.marchio; return id ? (G.marchi || []).find(m => m.id === id) : null; };
+  const strategiaRotta = (G, da, a) => { const M0 = marchioDi(G, chiave(da, a)); return M0 ? D.STRATEGIE[TIPI_MARCHIO[M0.tipo].strategia] : STR(G); };
+  const repRotta = (G, da, a) => marchioDi(G, chiave(da, a))?.rep ?? G.reputazione;
+  const notoMarchio = (G, da, a) => marchioDi(G, chiave(da, a))?.notorieta ?? 1;
+  function quotaPersonaleMarchi(G) {
+    const n = Object.keys(G.rotte).length; if (!n || !(G.marchi || []).length) return 0;
+    let s = 0; for (const r of Object.values(G.rotte)) { const M0 = r.marchio && G.marchi.find(m => m.id === r.marchio); if (M0) s += TIPI_MARCHIO[M0.tipo].personale; }
+    return s / n;
+  }
+  function contiGruppo(G, giorni = 30) {
+    const S = statRecenti(G, giorni), out = { principale: { nome: G.nome, rotte: 0, ricavi: 0, costi: 0, pax: 0, posti: 0 } };
+    for (const m of G.marchi || []) out[m.id] = { nome: m.nome, rotte: 0, ricavi: 0, costi: 0, pax: 0, posti: 0 };
+    for (const k of Object.keys(G.rotte)) { const id = marchioDi(G, k)?.id || 'principale', x = out[id], r = S.rotte[k]; x.rotte++; if (r) { x.ricavi += r.ricavi; x.costi += r.costi; x.pax += r.pax; x.posti += r.posti; } }
+    for (const x of Object.values(out)) { x.utile = x.ricavi - x.costi; x.lf = x.posti ? x.pax / x.posti : 0; x.giorno = x.utile / Math.max(1, S.n); }
+    return out;
+  }
+  const SOCIETA = {
+    mro: { nome: 'Manutenzione (MRO)', costo: 8e6, voce: 'manutenzione', risparmio: 0.12, mercato: 26000, margine: 0.2, descr: 'Hangar e tecnici tuoi: manutenzione −12% e lavori per altre compagnie.' },
+    handling: { nome: 'Handling', costo: 3e6, voce: 'handling', risparmio: 0.1, mercato: 14000, margine: 0.13, descr: 'Servizi a terra (bagagli, imbarchi, rampa): handling −10% e contratti con altre compagnie.' },
+    catering: { nome: 'Catering', costo: 2e6, voce: 'servizio', risparmio: 0.12, mercato: 9000, margine: 0.16, descr: 'Cucine tue: servizio di bordo −12% e pasti venduti ad altri.' }
+  };
+  const statoSocieta = (G, k) => (G.societa || {})[k] || { stato: 'no' };
+  function fattoreSocieta(G, voce) {
+    for (const [k, S] of Object.entries(SOCIETA)) if (S.voce === voce) { const x = statoSocieta(G, k); if (x.stato === 'attiva') return 1 - S.risparmio; if (x.stato === 'venduta' && G.ora < x.contrattoFino) return 1.03; }
+    return 1;
+  }
+  function valoreSocieta(G, k) {
+    const S = SOCIETA[k], x = statoSocieta(G, k), terzi = S.mercato * (0.3 + (x.clienti || 0)) * S.margine * 365;
+    const spesa = G.storico.slice(-30).reduce((s, y) => s + ((y.dettaglio || {})[S.voce] || 0), 0) * 12, risp = spesa * S.risparmio / (1 - S.risparmio);
+    return Math.round((terzi * 7 + risp * 4 + S.costo * 0.5) / 1e5) * 1e5;
+  }
+  function giornoGruppo(G) {
+    for (const m of G.marchi || []) { m.rep = clamp(m.rep + (G.reputazione - 4 - m.rep) * 0.02, 0, 100); m.notorieta = Math.min(1, m.notorieta + 0.003); }
+    const ec = G.economia ? Object.values(G.economia).reduce((s, x) => s + x, 0) / Object.keys(G.economia).length : 1;
+    for (const [k, S] of Object.entries(SOCIETA)) {
+      const x = statoSocieta(G, k); if (x.stato !== 'attiva') continue;
+      x.clienti = Math.min(1, (x.clienti || 0) + 0.0015);
+      const ric = Math.round(S.mercato * (0.3 + x.clienti) * ec), ut = Math.round(ric * S.margine);
+      G.cassa += ut; G.oggi.ricavi += ric; G.oggi.costi.altro = (G.oggi.costi.altro || 0) + ric - ut; x.utile30 = (x.utile30 || 0) * 29 / 30 + ut;
+      G.oggi.ricaviSocieta = (G.oggi.ricaviSocieta || 0) + ric;
+    }
+  }
+
+  /* ---------- Istituzioni: bandi di continuità territoriale, tasse, aiuti di Stato, lobby ---------- */
+  const LOBBY = [{ nome: 'Nessuna', costo: 0 }, { nome: 'Relazioni istituzionali', costo: 3000 }, { nome: 'Ufficio a Roma e Bruxelles', costo: 8000 }, { nome: 'Lobby aggressiva', costo: 15000 }];
+  const liv = G => G.lobby || 0;
+  function candidatiBando(G) {
+    const out = [];
+    for (const b of G.basi) for (const x of Object.values(AP)) {
+      if (x.iata === b || G.basi.includes(x.iata) || x.paese !== AP[b].paese) continue;
+      const d = km(b, x.iata); if (d < 200 || d > 1600) continue;
+      const k = chiave(b, x.iata); if ((G.pso || []).some(p => p.k === k) || (G.bandi || []).some(p => p.k === k)) continue;
+      out.push({ k, punti: (x.isola ? 3 : 0) + (x.pop < 600 ? 2 : x.pop < 1200 ? 1 : 0) + rnd() });
+    }
+    return out.sort((a, b) => b.punti - a.punti).slice(0, 4);
+  }
+  function nuovoBando(G) {
+    if ((G.bandi || []).length >= 2) return;
+    const c = candidatiBando(G); if (!c.length) return;
+    const { k } = c[Math.floor(rnd() * c.length)], [a, b] = k.split('-'), d = km(a, b), ref = prezzoRif(d);
+    const sussidio = Math.round((d < 600 ? 1.6e6 : 2.4e6) * (0.8 + rnd() * 0.5) / 1e5) * 1e5;
+    (G.bandi ||= []).push({ id: 'b' + (G.seq++), k, minFreq: d < 600 ? 3 : 2, maxPrezzo: Math.round(ref * 0.85), sussidio, anni: 2, scade: G.ora + 20 * GIORNO, offerta: null, rivali: 1 + Math.floor(rnd() * 3) });
+    const isola = AP[a].isola || AP[b].isola;
+    notizia(G, `Bando di continuità territoriale per ${a}–${b}${isola ? ' (isola)' : ''}: ${eur(sussidio)} l’anno per 2 anni in cambio di voli e prezzi garantiti (pagina Governo e tribunali).`, 'info', true);
+  }
+  const probBando = (G, B, livello) => clamp(0.8 - 0.25 * livello - 0.08 * (B.rivali - 1) + 0.07 * liv(G) + (G.reputazione - 50) / 250, 0.08, 0.95);
+  function chiudiBando(G, B) {
+    G.bandi = G.bandi.filter(x => x !== B);
+    if (!B.offerta) return;
+    const [a, b] = B.k.split('-');
+    if (rnd() < probBando(G, B, B.offerta.livello)) {
+      const sus = Math.round(B.sussidio * [0.75, 1, 1.25][B.offerta.livello]);
+      (G.pso ||= []).push({ k: B.k, inizio: G.ora, fine: G.ora + B.anni * 365 * GIORNO, minFreq: B.minFreq, maxPrezzo: B.maxPrezzo, sussidio: sus, violazioni: 0, incassato: 0 });
+      if (!G.rotte[B.k]) { const d = km(a, b), ref = prezzoRif(d); G.rotte[B.k] = { aperta: G.ora, pY: Math.min(ref, B.maxPrezzo), pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) }; }
+      else G.rotte[B.k].pY = Math.min(G.rotte[B.k].pY, B.maxPrezzo);
+      notizia(G, `Hai vinto il bando ${a}–${b}: ${eur(sus)} l’anno. Obblighi: almeno ${B.minFreq} voli al giorno per direzione e Economy a non più di ${eur(B.maxPrezzo)}. Programma gli aerei!`, 'buona', true);
+    } else notizia(G, `Bando ${a}–${b} assegnato a un concorrente.`, 'cattiva', true);
+  }
+  function giornoPso(G) {
+    const ieri = G.storico.at(-1); if (!ieri) return;
+    for (const p of (G.pso || []).slice()) {
+      if (G.ora >= p.fine) { G.pso = G.pso.filter(x => x !== p); notizia(G, `Concluso il contratto di continuità territoriale ${p.k.replace('-', '–')}: incassati ${eur(p.incassato)}.`, 'info', true); continue; }
+      if (G.ora - p.inizio < 21 * GIORNO) continue; // tempo per programmare gli aerei
+      const r = (ieri.rotte || {})[p.k], ok0 = r && r.voli >= p.minFreq * 2 && G.rotte[p.k] && G.rotte[p.k].pY <= p.maxPrezzo, g = p.sussidio / 365;
+      if (ok0) { G.cassa += g; G.oggi.ricavi += g; G.oggi.contributi = (G.oggi.contributi || 0) + g; p.incassato += g; }
+      else { p.violazioni++; paga(G, g * 0.3, 'altro'); if (p.violazioni === 5) notizia(G, `Continuità territoriale ${p.k.replace('-', '–')}: obblighi non rispettati per 5 giorni, ogni giorno paghi una penale. Al decimo il contratto viene revocato.`, 'cattiva', true);
+        if (p.violazioni >= 10) { G.pso = G.pso.filter(x => x !== p); paga(G, 500000, 'altro'); G.reputazione = Math.max(0, G.reputazione - 3); notizia(G, `Contratto ${p.k.replace('-', '–')} revocato per inadempienza: penale di 500.000 €.`, 'cattiva', true); } }
+    }
+  }
+  function cambioTasse(G) {
+    const paesi = [...new Set([...rotteInEsercizio(G)].flatMap(k => k.split('-')).map(i => AP[i].paese))]; if (!paesi.length) return;
+    const p = paesi[Math.floor(rnd() * paesi.length)], su = rnd() < 0.62 - 0.1 * liv(G), d = (su ? 1 : -1) * (2 + Math.floor(rnd() * 5));
+    G.tassePax ||= {}; G.tassePax[p] = clamp((G.tassePax[p] || 0) + d, -5, 20);
+    (G.storiaTasse ||= []).unshift({ t: G.ora, paese: p, delta: d, totale: G.tassePax[p] }); G.storiaTasse.length = Math.min(G.storiaTasse.length, 12);
+    notizia(G, `${su ? 'Aumenta' : 'Scende'} la tassa sui biglietti in ${PAESI_N(p)}: ${d > 0 ? '+' : ''}${d} € per passeggero in partenza.`, su ? 'cattiva' : 'buona', true);
+  }
+  const PAESI_N = p => Object.values(AP).find(x => x.paese === p)?.nomePaese || p;
+  function giornoIstituzioni(G) {
+    const d = loc(G.ora);
+    if (G.lobby) paga(G, LOBBY[G.lobby].costo, 'sede');
+    for (const B of (G.bandi || []).slice()) if (G.ora >= B.scade) chiudiBando(G, B);
+    giornoPso(G);
+    if (d.getUTCDate() === 5) {
+      if (rnd() < 0.3 && G.ora - G.inizio > 45 * GIORNO) nuovoBando(G);
+      if (rnd() < 0.25 && G.ora - G.inizio > 60 * GIORNO) cambioTasse(G);
+      if (G.lobby && rnd() < [0, 0.01, 0.03, 0.06][G.lobby]) {
+        const multa = 1e6 * G.lobby; paga(G, multa, 'altro'); G.reputazione = Math.max(0, G.reputazione - 5); if (G.ad) G.ad.rep = Math.max(0, G.ad.rep - 6); if (G.cda) G.cda.fiducia = Math.max(0, G.cda.fiducia - 5);
+        notizia(G, `Scandalo: un’inchiesta giornalistica rivela i rapporti troppo stretti tra la tua compagnia e alcuni politici. Multa di ${eur(multa)}, ufficio relazioni istituzionali chiuso.`, 'cattiva', true); G.lobby = 0;
+      }
+      // aiuti di Stato nelle crisi
+      const fiss = Object.values(costiFissi(G)).reduce((s, x) => s + x, 0), crisi = (G.crisiDomanda || []).some(c => G.ora < c.fine) || G.cassa < 15 * fiss;
+      if (crisi && !G.aiuti && !G.offertaAiuto && rnd() < 0.35 && G.ora - G.inizio > 30 * GIORNO) {
+        G.offertaAiuto = { importo: Math.round(clamp(fiss * 60, 2e6, 50e6) / 1e5) * 1e5, scade: G.ora + 15 * GIORNO };
+        notizia(G, `Il governo offre un prestito agevolato all’1% di ${eur(G.offertaAiuto.importo)} per superare la crisi. Attenzione: l’Europa potrebbe considerarlo un aiuto di Stato illegale.`, 'info', true);
+      }
+    }
+    if (G.offertaAiuto && G.ora >= G.offertaAiuto.scade) G.offertaAiuto = null;
+    const Ai = G.aiuti; if (Ai && !Ai.chiuso && G.ora >= Ai.verifica) {
+      Ai.chiuso = true; const deb = G.debiti.find(x => x.id === Ai.debito);
+      if (rnd() < 0.35 - 0.04 * liv(G)) { const pen = Math.round(Ai.importo * 0.05); paga(G, pen, 'interessi'); if (deb) deb.tasso = rating(G).tasso + 0.02; notizia(G, `La Commissione europea giudica illegale l’aiuto di Stato: penale di ${eur(pen)} e il prestito torna a tassi di mercato.`, 'cattiva', true); }
+      else notizia(G, 'La Commissione europea approva l’aiuto di Stato: il prestito agevolato resta.', 'buona', true);
+    }
+  }
+
+  /* ---------- Rivali con un volto: i loro amministratori delegati ---------- */
+  const NOMI_AD = ['Vittorio Sanna', 'Helena Krause', 'Rashid Al Mansoori', 'Beatrice Colombo', 'Pierre Lavigne', 'Tomás Herrera', 'Ingrid Holm', 'Kenzo Tanaka', 'Margaret Doyle', 'Alessio Ferrante', 'Nadia Benali', 'Lars Eklund'];
+  const STILI = { aggressivo: { nome: 'aggressivo', f: 1.6, descr: 'attacca le rotte piene e lancia guerre dei prezzi' }, prudente: { nome: 'prudente', f: 0.6, descr: 'evita le guerre e difende ciò che ha' }, imprevedibile: { nome: 'imprevedibile', f: 1, descr: 'a volte calmo, a volte aggressivo' } };
+  function initCeo(G) {
+    const usati = new Set(G.rivali.map(R => R.ceo?.nome));
+    for (const R of G.rivali) if (!R.ceo) { const liberi = NOMI_AD.filter(n => !usati.has(n)), nome = liberi[Math.floor(rnd() * liberi.length)] || 'Nuovo AD'; usati.add(nome); R.ceo = { nome, stile: ['aggressivo', 'prudente', 'imprevedibile'][Math.floor(rnd() * 3)], rancore: 10 }; }
+  }
+  const fStile = R => { const s = R.ceo?.stile; return (s === 'imprevedibile' ? 0.4 + rnd() * 1.6 : STILI[s]?.f ?? 1) * (1 + (R.ceo?.rancore || 0) / 120); };
+  const rancore = (G, R, d, motivo) => { if (!R || !R.ceo) return; const prima = R.ceo.rancore; R.ceo.rancore = clamp(prima + d, 0, 100); if (prima < 70 && R.ceo.rancore >= 70) notizia(G, `${R.ceo.nome}, AD di ${R.nome}, ce l’ha con te${motivo ? ` (${motivo})` : ''}: aspettati attacchi mirati.`, 'cattiva', true); };
+  function settimanaCeo(G) {
+    initCeo(G);
+    for (const R of G.rivali) {
+      R.ceo.rancore = Math.max(0, R.ceo.rancore - (alleato(G, R.id) ? 3 : 1));
+      // con molto rancore l'AD rivale attacca una tua rotta di proposito
+      if (R.ceo.rancore >= 70 && !alleato(G, R.id) && rnd() < 0.25) {
+        const mie = Object.keys(G.rotte).filter(k => !R.rotte[k] && k.split('-').some(i => km(i, R.hub) < 2500) && !G.mosseRivali.some(m => m.k === k && !m.fatta));
+        if (mie.length) { const k = mie[Math.floor(rnd() * mie.length)]; G.mosseRivali.push({ riv: R.id, k, freq: 2, t: G.ora + (7 + Math.floor(rnd() * 10)) * GIORNO, attacco: true }); R.ceo.rancore -= 15; }
+      }
+    }
+  }
+
+  /* ---------- Cause e tribunali ---------- */
+  function nuovaCausa(G, c) { (G.cause ||= []).unshift({ id: 'c' + (G.seq++), t: G.ora, stato: 'aperta', scade: G.ora + 14 * GIORNO, ...c }); notizia(G, `${c.titolo}: decidi se patteggiare o andare a processo (pagina Governo e tribunali).`, 'cattiva', true); }
+  const causaRecente = (G, tipo, giorni) => (G.cause || []).some(c => c.tipo === tipo && G.ora - c.t < giorni * GIORNO);
+  function settimanaCause(G) {
+    const s7 = G.storico.slice(-7), canc = s7.reduce((x, y) => x + y.canc, 0), voli = s7.reduce((x, y) => x + y.voli, 0) + canc;
+    if (voli > 60 && canc / voli > 0.06 && canc >= 15 && !causaRecente(G, 'classaction', 150)) {
+      const imp = Math.round(canc * 140 * 110 / 1e4) * 1e4;
+      nuovaCausa(G, { tipo: 'classaction', titolo: 'Class action dei passeggeri', testo: `Un’associazione di consumatori fa causa per le ${canc} cancellazioni dell’ultima settimana e chiede ${eur(imp)} di risarcimenti.`, importo: imp, prob: 0.55 });
+    }
+    // antitrust: se domini troppe rotte da una città
+    for (const b of G.basi) {
+      const mie = Object.keys(G.rotte).filter(k => k.split('-').includes(b) && (G.rotte[k].quota || 0) > 0.6);
+      if (mie.length >= 5 && !causaRecente(G, 'antitrust', 365) && rnd() < 0.08) {
+        const ric = G.storico.slice(-30).reduce((x, y) => x + y.ricavi, 0) * 12, imp = Math.round(Math.max(1e6, ric * 0.015) / 1e5) * 1e5;
+        nuovaCausa(G, { tipo: 'antitrust', titolo: `Indagine antitrust su ${AP[b].citta}`, testo: `L’autorità della concorrenza indaga sulla tua posizione dominante a ${AP[b].citta} (${mie.length} rotte con più del 60% del mercato). Rischi una multa di ${eur(imp)} e la cessione di slot.`, importo: imp, prob: clamp(0.5 - 0.05 * liv(G), 0.2, 0.8), base: b });
+        break;
+      }
+    }
+    // contesa sugli slot con un rivale che ha l'hub nello stesso aeroporto
+    for (const R of G.rivali) if (AP[R.hub].slot && (G.slot[R.hub] || 0) >= 10 && !causaRecente(G, 'slot', 365) && rnd() < 0.02) {
+      nuovaCausa(G, { tipo: 'slot', titolo: `${R.nome} contesta i tuoi slot a ${R.hub}`, testo: `${R.nome} sostiene che alcuni tuoi slot a ${AP[R.hub].citta} sono stati assegnati in modo irregolare e chiede ${eur(1.5e6)} o la restituzione di 2 slot.`, importo: 1.5e6, prob: 0.45, base: R.hub, riv: R.id });
+      rancore(G, R, 10); break;
+    }
+    for (const c of G.cause || []) if (c.stato === 'aperta' && G.ora >= c.scade) { decidiCausa(G, c.id, 'processo'); notizia(G, `${c.titolo}: non hai deciso, si va a processo.`, 'info'); }
+    for (const c of G.cause || []) if (c.stato === 'processo' && G.ora >= c.sentenza) sentenza(G, c);
+    if (G.cause && G.cause.length > 15) G.cause.length = 15;
+  }
+  function decidiCausa(G, id, scelta) {
+    const c = (G.cause || []).find(x => x.id === id); if (!c || c.stato !== 'aperta') return err('Causa non più aperta');
+    if (scelta === 'patteggia') { const s = Math.round(c.importo * 0.45); paga(G, s, 'altro'); c.stato = 'chiusa'; c.esito = `Patteggiata per ${eur(s)}`; return ok(c.esito); }
+    const forte = scelta === 'forte', spese = Math.round(c.importo * (forte ? 0.08 : 0.03)); paga(G, spese, 'altro');
+    c.stato = 'processo'; c.forte = forte; c.sentenza = G.ora + (60 + Math.floor(rnd() * 60)) * GIORNO; c.spese = spese;
+    return ok(`Si va a processo: sentenza il ${dataDi(c.sentenza)}`);
+  }
+  function sentenza(G, c) {
+    c.stato = 'chiusa';
+    if (rnd() < c.prob - (c.forte ? 0.15 : 0)) {
+      paga(G, c.importo, 'altro'); c.esito = `Persa: pagati ${eur(c.importo)}`;
+      if ((c.tipo === 'antitrust' || c.tipo === 'slot') && c.base && G.slot[c.base]) { G.slot[c.base] = Math.max(0, G.slot[c.base] - 2); c.esito += ' e ceduti 2 slot'; }
+      G.reputazione = Math.max(0, G.reputazione - 2); notizia(G, `Sentenza: ${c.titolo} persa. ${c.esito}.`, 'cattiva', true);
+    } else { c.esito = 'Vinta'; G.reputazione = Math.min(100, G.reputazione + 1); notizia(G, `Sentenza: ${c.titolo} vinta in tribunale!`, 'buona', true); }
+  }
+
+  /* ---------- Dirigenti con abilità, stipendio e carattere ---------- */
+  const CARATTERI_DIR = { leale: 'leale', ambizioso: 'ambizioso: i rivali lo cercano', chiacchierone: 'chiacchierone: se scontento parla ai giornali' };
+  const NOMI_DIR = ['Giorgio Bassi', 'Lucia Caruso', 'Edoardo Neri', 'Martina Fabbri', 'Riccardo Leone', 'Silvia Mancini', 'Fabrizio Testa', 'Camilla Serra', 'Omar Haddad', 'Nina Bauer', 'Carlo Gentile', 'Irene Pellegrini', 'Tommaso Vitale', 'Alice Rizzo', 'Daniel Weber'];
+  const BASE_DIR = 250000;
+  const abil = (G, ruolo) => (G.direzione?.dirigenti?.[ruolo]?.abilita ?? 3) - 3;
+  function completaDirigenti(G) {
+    for (const [k, d] of Object.entries(G.direzione.dirigenti)) { d.abilita ??= 3; d.stipendio ??= BASE_DIR; d.carattere ??= ['leale', 'ambizioso', 'chiacchierone'][Math.floor(rnd() * 3)]; d.dal ??= G.ora; }
+    G.direzione.candidati ||= {};
+  }
+  const stipendioPer = a => Math.round((100000 + 30000 * a ** 1.35) / 5000) * 5000;
+  function generaCandidati(G, ruolo) {
+    const usati = new Set(Object.values(G.direzione.dirigenti).map(d => d.nome)), lista = [];
+    for (let i = 0; i < 3; i++) {
+      const a = clamp(Math.round(2 + rnd() * 3.4 + (G.reputazione - 50) / 50), 1, 5), liberi = NOMI_DIR.filter(n => !usati.has(n)), nome = liberi[Math.floor(rnd() * liberi.length)]; usati.add(nome);
+      lista.push({ nome, abilita: a, stipendio: Math.round(stipendioPer(a) * (0.9 + rnd() * 0.25) / 5000) * 5000, carattere: ['leale', 'ambizioso', 'chiacchierone', 'leale'][Math.floor(rnd() * 4)] });
+    }
+    G.direzione.candidati[ruolo] = { t: G.ora, lista };
+    return lista;
+  }
+  function sostituisci(G, ruolo, nuovo, motivo) {
+    const d = G.direzione.dirigenti[ruolo], vecchio = d.nome, buon = Math.round(d.stipendio / 2);
+    paga(G, buon, 'sede');
+    Object.assign(d, { nome: nuovo.nome, abilita: nuovo.abilita, stipendio: nuovo.stipendio, carattere: nuovo.carattere, umore: 65, n: 0, dal: G.ora });
+    notizia(G, `${D.DIRIGENTI[ruolo].ruolo}: ${vecchio} lascia (${motivo}, buonuscita ${eur(buon)}). Arriva ${nuovo.nome}.`, 'info', true);
+  }
+  function meseDirigenti(G) {
+    completaDirigenti(G);
+    const R = G.direzione;
+    if (!R.corteggiamento) for (const [k, d] of Object.entries(R.dirigenti)) {
+      if (d.abilita >= 4 && G.rivali.length && rnd() < (d.carattere === 'ambizioso' ? 0.35 : d.carattere === 'leale' ? 0.08 : 0.18)) {
+        const Rv = G.rivali[Math.floor(rnd() * G.rivali.length)];
+        R.corteggiamento = { ruolo: k, riv: Rv.nome, offerta: Math.round(d.stipendio * 1.35 / 5000) * 5000, scade: G.ora + 10 * GIORNO };
+        notizia(G, `${Rv.nome} vuole portarti via ${d.nome} (${D.DIRIGENTI[k].ruolo}) con uno stipendio di ${eur(R.corteggiamento.offerta)}. Rilanci o lo lasci andare?`, 'cattiva', true); break;
+      }
+    }
+    for (const [k, d] of Object.entries(R.dirigenti)) if (d.carattere === 'chiacchierone' && d.umore < 30 && rnd() < 0.3) {
+      G.reputazione = Math.max(0, G.reputazione - 2); if (G.cda) G.cda.fiducia = Math.max(0, G.cda.fiducia - 4);
+      notizia(G, `Fuga di notizie: ${d.nome} (${D.DIRIGENTI[k].ruolo}), scontento, racconta ai giornali i problemi interni della compagnia.`, 'cattiva', true);
+    }
+  }
+  function giornoDirigenti(G) {
+    completaDirigenti(G);
+    const extra = Object.values(G.direzione.dirigenti).reduce((s, d) => s + (d.stipendio - BASE_DIR), 0) / 365; if (extra) paga(G, extra, 'sede');
+    const C = G.direzione.corteggiamento; if (C && G.ora >= C.scade) trattieni(G, false);
+  }
+  function trattieni(G, si) {
+    const R = G.direzione, C = R.corteggiamento; if (!C) return err('Nessuna offerta in corso'); R.corteggiamento = null;
+    const d = R.dirigenti[C.ruolo];
+    if (si) { d.stipendio = Math.round(C.offerta * 0.95 / 5000) * 5000; d.umore = Math.min(100, d.umore + 12); return ok(`${d.nome} resta, con uno stipendio di ${eur(d.stipendio)}`); }
+    const nuovo = { nome: NOMI_DIR.find(n => !Object.values(R.dirigenti).some(x => x.nome === n)) || 'Interim', abilita: 2, stipendio: 180000, carattere: 'leale' };
+    const vecchio = d.nome; Object.assign(d, { ...nuovo, umore: 60, n: 0, dal: G.ora });
+    const Rv = G.rivali.find(x => x.nome === C.riv); if (Rv) Rv.forza = Math.min(95, Rv.forza + 3);
+    notizia(G, `${vecchio} passa a ${C.riv}. Al suo posto, ad interim, ${d.nome}: cerca un sostituto in Direzione.`, 'cattiva', true);
+    return ok(`${vecchio} se ne va`);
+  }
+
+  const scegliAttaccante = G => { const l = G.rivali.filter(X => !alleato(G, X.id)), w = l.map(fStile), t = w.reduce((x, y) => x + y, 0); let r = rnd() * t; for (let i = 0; i < l.length; i++) { r -= w[i]; if (r <= 0) return l[i]; } return l[l.length - 1]; };
+  function giornoGruppoIstituzioni(G) {
+    giornoGruppo(G); giornoIstituzioni(G); giornoDirigenti(G);
+    if (giornoSett(G.ora) === 1) { settimanaCeo(G); settimanaCause(G); }
+    if (loc(G.ora).getUTCDate() === 15) meseDirigenti(G);
+  }
+
+  const AZIONI_GRUPPO = {
+    creaMarchio(G, tipo, nome) {
+      const T = TIPI_MARCHIO[tipo]; if (!T) return err('Tipo sconosciuto');
+      nome = String(nome || '').trim().slice(0, 30); if (!nome) return err('Scegli un nome per la nuova compagnia');
+      if ((G.marchi || []).length >= 3) return err('Al massimo tre compagnie controllate');
+      if (G.cassa < T.costo) return err(`Servono ${eur(T.costo)}`);
+      const v = serveVoto(G, 'flotta', T.costo, `nuova compagnia ${nome}`); if (v) return v;
+      paga(G, T.costo, 'altro'); G.marchi ||= [];
+      G.marchi.push({ id: 'm' + (G.seq++), tipo, nome, colore: COLORI_MARCHIO[G.marchi.length % COLORI_MARCHIO.length], rep: Math.max(30, G.reputazione - 8), notorieta: 0.5, dal: G.ora });
+      notizia(G, `Nasce ${nome}, la tua compagnia ${T.nome.toLowerCase()}. Assegnale le rotte dalla scheda di ogni rotta o dalla pagina Gruppo.`, 'buona', true);
+      return ok(`${nome} è nata`);
+    },
+    assegnaMarchio(G, k, id) {
+      const r = G.rotte[k]; if (!r) return err('Rotta inesistente');
+      if (id && !(G.marchi || []).some(m => m.id === id)) return err('Compagnia inesistente');
+      if ((r.marchio || null) === (id || null)) return ok('Nessun cambiamento');
+      paga(G, 25000, 'marketing'); r.marchio = id || null; vendite(G);
+      return ok(id ? `${k.replace('-', '–')} ora la vola ${G.marchi.find(m => m.id === id).nome}` : `${k.replace('-', '–')} torna a ${G.nome}`);
+    },
+    chiudiMarchio(G, id) {
+      const m = (G.marchi || []).find(x => x.id === id); if (!m) return err('Compagnia inesistente');
+      for (const r of Object.values(G.rotte)) if (r.marchio === id) r.marchio = null;
+      G.marchi = G.marchi.filter(x => x !== m); G.reputazione = Math.max(0, G.reputazione - 1); vendite(G);
+      return ok(`${m.nome} chiusa: le sue rotte tornano a ${G.nome}`);
+    },
+    apriSocieta(G, k) {
+      const S = SOCIETA[k]; if (!S) return err('Società sconosciuta'); G.societa ||= {};
+      if (statoSocieta(G, k).stato === 'attiva') return err('Già attiva');
+      if (G.cassa < S.costo) return err(`Servono ${eur(S.costo)}`);
+      const v = serveVoto(G, 'flotta', S.costo, `società ${S.nome}`); if (v) return v;
+      G.cassa -= S.costo; flusso(G, 'investimenti', -S.costo); G.societa[k] = { stato: 'attiva', dal: G.ora, clienti: 0, utile30: 0 };
+      return ok(`${S.nome}: società avviata`);
+    },
+    sviluppaSocieta(G, k) {
+      const x = statoSocieta(G, k); if (x.stato !== 'attiva') return err('Società non attiva'); if (x.clienti >= 0.95) return err('Ha già tutti i clienti possibili');
+      if (G.cassa < 500000) return err('Servono 500.000 €'); paga(G, 500000, 'marketing'); x.clienti = Math.min(1, x.clienti + 0.15);
+      return ok('Nuovi contratti con altre compagnie');
+    },
+    vendiSocieta(G, k) {
+      const x = statoSocieta(G, k); if (x.stato !== 'attiva') return err('Società non attiva');
+      const prezzo = valoreSocieta(G, k); G.cassa += prezzo; flusso(G, 'investimenti', prezzo);
+      G.societa[k] = { stato: 'venduta', venduta: G.ora, prezzo, contrattoFino: G.ora + 3 * 365 * GIORNO };
+      notizia(G, `Venduta la società ${SOCIETA[k].nome} per ${eur(prezzo)}. Per 3 anni la paghi come fornitore (+3% su quella voce).`, 'buona', true);
+      return ok(`Incassati ${eur(prezzo)}`);
+    },
+    offertaBando(G, id, livello) {
+      const B = (G.bandi || []).find(x => x.id === id); if (!B) return err('Bando chiuso'); livello = clamp(Math.round(livello), 0, 2);
+      if (G.cassa < 20000) return err('Servono 20.000 € per la documentazione'); paga(G, 20000, 'altro');
+      B.offerta = { livello }; return ok(`Offerta presentata: risultato il ${dataDi(B.scade)}`);
+    },
+    accettaAiuto(G, si) {
+      const O = G.offertaAiuto; if (!O) return err('Nessuna offerta'); G.offertaAiuto = null;
+      if (!si) return ok('Aiuto rifiutato');
+      const d = { id: 'd' + (G.seq++), capitale: O.importo, tasso: 0.01, rata: Math.round(O.importo / (6 * 365)) }; G.debiti.push(d); G.cassa += O.importo; flusso(G, 'finanziamenti', O.importo);
+      G.aiuti = { t: G.ora, importo: O.importo, debito: d.id, verifica: G.ora + (180 + Math.floor(rnd() * 360)) * GIORNO };
+      return ok(`Incassati ${eur(O.importo)} all’1%`);
+    },
+    lobby(G, l) { l = clamp(Math.round(l), 0, 3); G.lobby = l; return ok(l ? `${LOBBY[l].nome}: ${eur(LOBBY[l].costo)} al giorno` : 'Nessuna attività di lobby'); },
+    causa(G, id, scelta) { return decidiCausa(G, id, scelta); },
+    candidati(G, ruolo) { if (!G.direzione.dirigenti[ruolo]) return err('Ruolo sconosciuto'); const c = G.direzione.candidati[ruolo]; if (c && G.ora - c.t < 30 * GIORNO) return ok('Candidati pronti'); if (G.cassa < 40000) return err('Servono 40.000 € per il cacciatore di teste'); paga(G, 40000, 'sede'); generaCandidati(G, ruolo); return ok('Tre candidati selezionati'); },
+    assumiDirigente(G, ruolo, i) {
+      const c = G.direzione.candidati[ruolo], x = c && c.lista[i]; if (!x) return err('Candidato non disponibile');
+      sostituisci(G, ruolo, x, 'sostituito'); c.lista.splice(i, 1); return ok(`${x.nome} assunto`);
+    },
+    trattieni(G, si) { return trattieni(G, !!si); }
+  };
 
   /* ---------- Creazione e migrazione ---------- */
   // settimana dell'anno (per la sfida: stessa partenza per tutti nella stessa settimana)
@@ -3310,6 +3643,7 @@ const SIM = (() => {
       if (G.cassa < 30000) return err('Cassa insufficiente');
       const d = km(a, b), ref = prezzoRif(d); paga(G, 30000);
       G.rotte[k] = { aperta: G.ora, pY: ref, pW: Math.round(ref * multClasse('W', d)), pJ: Math.round(ref * multClasse('J', d)) };
+      for (const Rv of G.rivali) if (Rv.rotte[k]) rancore(G, Rv, 8, 'hai aperto una sua rotta');
       notizia(G, `Aperta la rotta ${a}–${b} (${d} km). Campagna di lancio: ${eur(30000)}.`, 'buona'); controllaTraguardi(G);
       if (!dirittiOk(G, a, b)) chiediDiritti(G, a, b);
       return ok('Rotta aperta');
@@ -3644,7 +3978,7 @@ const SIM = (() => {
     },
     premio(G) { const costo = totPersonale(G) * 1500; if (G.cassa < costo) return err(`Servono ${eur(costo)}`); paga(G, costo, 'personale'); G.morale = Math.min(100, G.morale + 12); return ok(`Premio distribuito (${eur(costo)}): morale +12`); },
     limitePrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return Math.max(0, Math.round((0.6 * f + 3e6 + Math.max(0, G.stat.utile) * 0.3 - debitoTot(G)) / 1e5) * 1e5); },
-    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return rating(G).tasso + 0.01 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.01 : 0); },
+    tassoPrestito(G) { let f = 0; for (const ae of G.aerei) if (ae.modo === 'proprieta') f += ae.valore; return rating(G).tasso + 0.01 * debitoTot(G) / (0.6 * f + 3e6) + (G.reputazione < 40 ? 0.01 : 0) - 0.0025 * abil(G, 'cfo'); },
     prestito(G, importo) {
       if (importo <= 0 || importo > A.limitePrestito(G)) return err('Importo oltre il limite concesso dalla banca');
       { const v = serveVoto(G, 'prestito', importo, `prestito di ${eur(importo)}`); if (v) return v; }
@@ -3675,7 +4009,7 @@ const SIM = (() => {
     }
   };
 
-  Object.assign(A, AZIONI_PROPRIETA);
-  return { TIPI_SOCIO, CARATTERI, COMPENSI, CONDIZIONI, DOMANDE, controllo, seggi, mia, sogliaVoto, probabilitaSi, carriera, valoreQuotaRiv, probOpa, costoOpa, ALLEANZE_G, QUOTA_GLOBALE, CANONE_GLOBALE, contiRivale, REVISIONI, AMMODERNAMENTI, ANNI_LEASING, costoRevisione, costoRiconsegna, dirittiOk, servonoDiritti, chiaveDiritti, segmenti, mixTariffe, quotaPromo, canali, altaStagione, fattoreMarchio, SCAGLIONI, indicatori, contoEconomico, statoPatrimoniale, rating, RATING, settimanaSfida, LIVELLI_IMPREVISTI, ASSICURAZIONI, BENESSERE, CONTRATTI, fattoreLavoro, fattorePaga, pianoRiserve, assente, generatoreSeme, impostaRnd: f => { rnd = f || Math.random; }, pianificaFlotta, stimaPersonalePiano, generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
+  Object.assign(A, AZIONI_PROPRIETA, AZIONI_GRUPPO);
+  return { TIPI_MARCHIO, SOCIETA, LOBBY, STILI, CARATTERI_DIR, contiGruppo, valoreSocieta, statoSocieta, probBando, marchioDi, stipendioPer, TIPI_SOCIO, CARATTERI, COMPENSI, CONDIZIONI, DOMANDE, controllo, seggi, mia, sogliaVoto, probabilitaSi, carriera, valoreQuotaRiv, probOpa, costoOpa, ALLEANZE_G, QUOTA_GLOBALE, CANONE_GLOBALE, contiRivale, REVISIONI, AMMODERNAMENTI, ANNI_LEASING, costoRevisione, costoRiconsegna, dirittiOk, servonoDiritti, chiaveDiritti, segmenti, mixTariffe, quotaPromo, canali, altaStagione, fattoreMarchio, SCAGLIONI, indicatori, contoEconomico, statoPatrimoniale, rating, RATING, settimanaSfida, LIVELLI_IMPREVISTI, ASSICURAZIONI, BENESSERE, CONTRATTI, fattoreLavoro, fattorePaga, pianoRiserve, assente, generatoreSeme, impostaRnd: f => { rnd = f || Math.random; }, pianificaFlotta, stimaPersonalePiano, generosita, livelliFedelta, ACCUMULO, SCADENZE, VANTAGGI, VALORE_MIGLIO, giorniAssunzione, assunzione, disponibile, annunciato, disponibileDal, superato, SCONTO_ATTESA, statoAccordo, scontoAeroporto, contributoRotta, stagioneDi, QUOTA_CO2, sommario, dataDi, valoreRivale, prezzoAcquisto, flottaRivale, disponibilita, LIVELLI_ALLEANZA, QUOTA_JV, AVVIO_JV, alleanzaCon: alleanza, jvSu, valoreProdotto, analisiProdotto, contoBordo, proposteDestinazioni, candidati, statoCda, valoreEquo, studiato, fattoreRotta, intel, initGestione, convocaRiunione, AZIONI, rotazioneGuidata, consigli, salute, statRecenti, controllaMissioni, roster, copertura, pianoAssunzioni, sistemaTurni, equipaggioDi, pagaEquipaggio, costoAssunzione, persone, MAX_TURNI, MAX_ORE, GIORNI_SETT, giornoSett, normalizza, settimanaVuota, impostaFuso, oraIn, oraLocaleMin, oraLocaleT, loc, multClasse, lungoRaggio, spazioPosto, pianoCiclo, continentiServiti, VERSIONE, MIN, ORA, GIORNO, CL, AP, MOD, CLS, km, durata, prezzoRif, chiave, chiaveCitta, dataDi, mezzanotte, tsDi, giornoDopo, minDaOra, oraDaMin, zero, somma, posti, cabMin, spazioUsato, cabinaStandard, validaCabina, quoteClassi, prezziRotta, legsGiorno, tratteDi, indiceCiclo, mediaCiclo, validaProgramma, salvaProgramma, partenzePerScalo, nuovaPartita, migra, avanza, analisiMercato, domandaClassi, spinta, stimaMarketing, rivaliSu, coincidenze,  costiFissi, valoreCompagnia, debitoTot, obiettivi, pianificaCheck, totPersonale, vendite, venduti, rotteInEsercizio, A, eur };
 })();
 if (typeof module !== 'undefined') module.exports = SIM;

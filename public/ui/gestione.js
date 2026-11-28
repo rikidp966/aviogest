@@ -31,8 +31,8 @@ VISTE.direzione = () => {
     ${!riunioneAperta() ? `<div class="filtri mt"><button data-az="convoca" ${R.ultimaStraordinaria && G.ora - R.ultimaStraordinaria < 7 * GIORNO ? 'disabled' : ''}>Convoca una riunione straordinaria</button><span class="piccolo muto">Al massimo una a settimana</span></div>` : ''}
   </div>
   <div class="griglia g2 mt">
-    <div class="pannello"><h2>Il tuo team</h2><ul class="team">${Object.entries(R.dirigenti).map(([k, d]) => `<li><span class="avatar r-${k}" aria-hidden="true">${h(iniziali(d.nome))}</span><div><b>${h(d.nome)}</b><small>${D.DIRIGENTI[k].ruolo} · ${D.DIRIGENTI[k].motto}</small>${barretta(d.umore / 100, `umore ${Math.round(d.umore)}`, [2, 2])}</div></li>`).join('')}</ul>
-      <p class="nota">Bocciare spesso le proposte di un dirigente lo demotiva: sotto 15 di umore si dimette.</p></div>
+    <div class="pannello"><h2>Il tuo team</h2><ul class="team">${Object.entries(R.dirigenti).map(([k, d]) => `<li><span class="avatar r-${k}" aria-hidden="true">${h(iniziali(d.nome))}</span><div><b>${h(d.nome)}</b><small>${D.DIRIGENTI[k].ruolo} · <span class="stelle-p">${stelleAb(d.abilita ?? 3)}</span> · ${mln(d.stipendio ?? 250000)} l’anno</small><small class="muto">${h(SIM.CARATTERI_DIR[d.carattere] || D.DIRIGENTI[k].motto)}</small>${barretta(d.umore / 100, `umore ${Math.round(d.umore)}`, [2, 2])}<button class="piccolo" data-az="candidati" data-r="${k}">Sostituisci</button></div></li>`).join('')}</ul>
+      <p class="nota">Bocciare spesso le proposte di un dirigente lo demotiva: sotto 15 di umore si dimette. Le stelle sono la sua bravura: per sostituirlo un cacciatore di teste (40.000 €) ti propone tre candidati. I migliori costano di più e i rivali provano a portarteli via.</p></div>
     <div class="pannello"><div class="riga" style="margin:0 0 8px"><h2 style="margin:0">Consiglio di amministrazione</h2><a class="piccolo" href="#/proprieta">Soci e consiglieri →</a></div>
       <div class="piccolo">Fiducia nella tua gestione</div>${barretta(G.cda.fiducia / 100, Math.round(G.cda.fiducia) + '/100', [2, 2])}
       <p class="piccolo">Obiettivi del semestre · mancano <b>${giorniA(sem.fine)} giorni</b></p>
