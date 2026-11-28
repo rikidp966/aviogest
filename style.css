@@ -722,3 +722,23 @@ table.bilancio tr.tot td { border-top: 1px solid var(--bordo-forte); font-weight
 .stelle { font-size: 28px; color: var(--segnale-2); margin: 4px 0; letter-spacing: 2px; }
 .stelle b { font: 700 20px/1 var(--f-titolo); color: var(--testo); margin-left: 6px; letter-spacing: 0; }
 table.bilancio td { white-space: normal; } table.bilancio td.num { white-space: nowrap; }
+
+/* ---------- Soci e CdA, passeggeri ---------- */
+.soci, .consiglio, .recensioni { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.soci li { display: grid; grid-template-columns: 1fr minmax(96px, 34%); gap: 10px; align-items: center; }
+.soci small, .consiglio small { display: block; color: var(--testo-2); font-size: 12px; }
+.soci .quota { display: grid; gap: 2px; text-align: right; }
+.consiglio li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+.evidenza { border-left: 3px solid var(--segnale-2); }
+.evidenza-err { border-left: 3px solid var(--err); }
+fieldset.domanda { border: 1px solid var(--bordo); border-radius: 8px; margin: 12px 0 0; padding: 8px 12px; }
+fieldset.domanda legend { font-weight: 600; padding: 0 4px; }
+fieldset.domanda .opz { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; min-height: 32px; }
+.lettera { border-bottom: 1px solid var(--bordo); padding: 6px 0 10px; margin-bottom: 8px; }
+.lettera p { margin: 4px 0; }
+.recensioni li { border-bottom: 1px solid var(--bordo); padding-bottom: 8px; }
+.recensioni p { margin: 4px 0 0; }
+.stelle-p { color: var(--segnale-2); letter-spacing: 1px; white-space: nowrap; }
+.griglia > label, .griglia > div { min-width: 0; }
+#asDiv, #asComp { width: 100%; max-width: 100%; text-overflow: ellipsis; }
+.filtri button { max-width: 100%; white-space: normal; }
